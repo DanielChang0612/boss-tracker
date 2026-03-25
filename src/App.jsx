@@ -305,7 +305,7 @@ function App() {
           <div className="lobby-container">
             {/* ... 大廳內容 ... */}
             <header className="lobby-header">
-              <div className="version-tag">Build v1.2.3</div>
+              <div className="version-tag">Build v1.2.4</div>
               <h1>PiKaPi 公會和諧打王趣</h1>
               <p>專業野王紀錄管理系統</p>
             </header>
@@ -491,10 +491,6 @@ function App() {
                 </div>
                 <button className="export-btn" onClick={exportReport}>🖼 匯出擊殺戰報 (PNG)</button>
               </div>
-
-              <div className="sidebar-btns">
-                <button className="leave-btn" onClick={handleLeaveClick}>下車離開 (返回大廳)</button>
-              </div>
             </div>
 
             <div className="room-main">
@@ -521,10 +517,13 @@ function App() {
                     </div>
                   </div>
                 </div>
-                <button className="share-btn" onClick={() => {
-                  navigator.clipboard.writeText(window.location.href);
-                  alert("已複製房間連結！");
-                }}>分享房間連結</button>
+                <div className="header-actions">
+                  <button className="share-btn" onClick={() => {
+                    navigator.clipboard.writeText(window.location.href);
+                    alert("已複製房間連結！");
+                  }}>分享房間連結</button>
+                  <button className="leave-btn" onClick={handleLeaveClick}>下車離開 (返回大廳)</button>
+                </div>
               </header>
 
               <section className="input-section">

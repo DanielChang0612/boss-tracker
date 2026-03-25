@@ -505,21 +505,7 @@ body {
   cursor: pointer;
 }
 
-.sidebar-btns {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.leave-btn {
-  padding: 12px;
-  border-radius: 8px;
-  background: rgba(255, 82, 82, 0.1);
-  color: #ff5252;
-  border: 1px solid #ff5252;
-  cursor: pointer;
-}
+/* 側邊欄按鈕已遷移至頂部 */
 
 .member-hint {
   background: rgba(255, 255, 255, 0.05);
@@ -641,6 +627,75 @@ body {
   gap: 20px;
   color: var(--gold);
 }
+.header-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.share-btn, .header-actions .leave-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-size: 0.9rem;
+}
+
+.share-btn {
+  background: var(--gold);
+  color: black;
+  border: none;
+}
+
+.header-actions .leave-btn {
+  background: rgba(211, 47, 47, 0.1);
+  border: 1px solid #d12f2f;
+  color: #ff8a80;
+}
+
+.share-btn:hover, .header-actions .leave-btn:hover {
+  filter: brightness(1.2);
+  transform: translateY(-2px);
+}
+
+.header-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.share-btn, .header-actions .leave-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-size: 0.9rem;
+  width: 100%;
+  max-width: 180px;
+  text-align: center;
+}
+
+.share-btn {
+  background: var(--gold);
+  color: black;
+  border: none;
+}
+
+.header-actions .leave-btn {
+  background: rgba(211, 47, 47, 0.1);
+  border: 1px solid #d32f2f;
+  color: #ff8a80;
+}
+
+.share-btn:hover, .header-actions .leave-btn:hover {
+  filter: brightness(1.2);
+  transform: translateY(-2px);
+}
+
 /* 側邊欄擊殺報表 (v1.2.0) */
 .kill-report-panel {
   background: rgba(255, 255, 255, 0.05);
