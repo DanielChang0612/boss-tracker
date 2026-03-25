@@ -124,9 +124,9 @@ body {
   text-align: center;
 }
 
-/* 房間內計時器列表專用比例 (v1.2.1: 7 欄最佳化) */
+/* 房間內計時器列表專用比例 (v1.3.0: 擴展操作欄位) */
 .room-main .list-header, .room-main .list-row {
-  grid-template-columns: 70px 110px 100px 110px 1fr 130px 170px;
+  grid-template-columns: 70px 110px 100px 110px 1fr 130px 240px;
   font-size: 0.95rem;
 }
 
@@ -260,18 +260,29 @@ body {
   transition: all 0.2s;
 }
 
-.re-kill-btn {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+.re-kill-btn, .broadcast-btn {
   color: white;
   border: none;
-  padding: 6px 12px;
+  padding: 6px 14px;
   border-radius: 4px;
   font-weight: bold;
   cursor: pointer;
   transition: 0.2s;
+  white-space: nowrap;
 }
 
-.re-kill-btn:hover {
+.re-kill-btn {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.broadcast-btn {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.re-kill-btn:hover, .broadcast-btn:hover {
   filter: brightness(1.2);
   transform: scale(1.05);
 }

@@ -94,6 +94,19 @@ function App() {
     return () => clearInterval(timer);
   }, []);
 
+  // 語音播放邏輯 (v1.3.0)
+  const lastAlertTs = React.useRef(Date.now());
+  useEffect(() => {
+    if (!currentRoomId || !rooms[currentRoomId] || view !== 'room') return;
+    const alert = rooms[currentRoomId].voiceAlert;
+    if (alert && alert.ts > lastAlertTs.current) {
+      lastAlertTs.current = alert.ts;
+      const utterance = new SpeechSynthesisUtterance(alert.message);
+      utterance.lang = 'zh-TW';
+      window.speechSynthesis.speak(utterance);
+    }
+  }, [rooms, currentRoomId, view]);
+
   // 生命週期管理：自動清理無人房間 (由前端定期觸發雲端刪除)
   useEffect(() => {
     const cleanup = () => {
@@ -258,6 +271,16 @@ function App() {
     return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
   };
 
+  const triggerVoiceAlert = (chKey) => {
+    update(ref(db, `rooms/${currentRoomId}`), {
+      voiceAlert: {
+        message: `${chKey} 已經重生`,
+        ts: Date.now(),
+        sender: userName
+      }
+    });
+  };
+
   const exportReport = () => {
     const element = document.getElementById('kill-report-card');
     if (!element) return;
@@ -305,7 +328,7 @@ function App() {
           <div className="lobby-container">
             {/* ... 大廳內容 ... */}
             <header className="lobby-header">
-              <div className="version-tag">Build v1.2.4</div>
+              <div className="version-tag">Build v1.3.0</div>
               <h1>PiKaPi 公會和諧打王趣</h1>
               <p>專業野王紀錄管理系統</p>
             </header>
@@ -587,6 +610,7 @@ function App() {
                         </div>
                         <div className="col-actions">
                           <button className="re-kill-btn" onClick={() => addRecord(chKey)}>已擊殺</button>
+                          <button className="broadcast-btn" onClick={() => triggerVoiceAlert(chKey)}>📢 廣播</button>
                           <button className="row-remove-btn" onClick={() => removeRecord(chKey)}>刪除</button>
                         </div>
                       </div>
