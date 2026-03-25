@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from './firebase';
 import { ref, onValue, set, update, remove } from 'firebase/database';
+import html2canvas from 'html2canvas';
 
 // BOSS 定義
 const BOSSES = {
@@ -267,7 +268,7 @@ function App() {
     btn.innerText = "生成圖片中...";
     btn.disabled = true;
 
-    window.html2canvas(element, {
+    html2canvas(element, {
       backgroundColor: '#1a1a1a', // 確保背景是深色
       scale: 2, // 提高解析度
       useCORS: true
@@ -304,7 +305,7 @@ function App() {
           <div className="lobby-container">
             {/* ... 大廳內容 ... */}
             <header className="lobby-header">
-              <div className="version-tag">Build v1.2.1</div>
+              <div className="version-tag">Build v1.2.2</div>
               <h1>PiKaPi 公會和諧打王趣</h1>
               <p>專業野王紀錄管理系統</p>
             </header>
