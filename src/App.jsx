@@ -119,6 +119,7 @@ function App() {
       conductor: newRoomConductor.trim(),
       members: [newRoomConductor.trim()],
       records: {},
+      totalKills: 0,
       createdAt: Date.now(),
       emptySince: null
     };
@@ -222,6 +223,13 @@ function App() {
       lastKill: Date.now(),
       reporter: userName 
     });
+    
+    // 全域擊殺統計累加
+    const room = rooms[currentRoomId];
+    update(ref(db, `rooms/${currentRoomId}`), { 
+      totalKills: (room.totalKills || 0) + 1 
+    });
+
     if (!manualChKey) setInputChannel('');
   };
 
@@ -249,6 +257,37 @@ function App() {
     return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
   };
 
+  const exportReport = () => {
+    const element = document.getElementById('kill-report-card');
+    if (!element) return;
+    
+    // 提醒使用者正在處理
+    const btn = document.querySelector('.export-btn');
+    const originalText = btn.innerText;
+    btn.innerText = "生成圖片中...";
+    btn.disabled = true;
+
+    window.html2canvas(element, {
+      backgroundColor: '#1a1a1a', // 確保背景是深色
+      scale: 2, // 提高解析度
+      useCORS: true
+    }).then(canvas => {
+      const link = document.createElement('a');
+      link.download = `PiKaPi_${currentBoss.name}_戰報_${new Date().toLocaleDateString()}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      
+      btn.innerText = originalText;
+      btn.disabled = false;
+      alert("✅ 戰報匯出成功！");
+    }).catch(err => {
+      console.error(err);
+      btn.innerText = originalText;
+      btn.disabled = false;
+      alert("❌ 匯出失敗，請重試");
+    });
+  };
+
   // Lobby 房間列表過濾
   const bossRooms = useMemo(() => {
     if (!rooms) return [];
@@ -265,7 +304,7 @@ function App() {
           <div className="lobby-container">
             {/* ... 大廳內容 ... */}
             <header className="lobby-header">
-              <div className="version-tag">Build v1.1.0</div>
+              <div className="version-tag">Build v1.2.0</div>
               <h1>PiKaPi 公會和諧打王趣</h1>
               <p>專業野王紀錄管理系統</p>
             </header>
@@ -421,6 +460,37 @@ function App() {
                 <p>重生時間: {currentBoss.time} 分鐘</p>
                 <p>地區: {currentBoss.area}</p>
               </div>
+
+              {/* 擊殺報告 (v1.2.0) */}
+              <div className="kill-report-panel" id="kill-report-card">
+                <h3>📊 擊殺報告 (TODAY)</h3>
+                <div className="report-content">
+                  <div className="report-item">
+                    <span className="label">日期:</span>
+                    <span className="val">{new Date().toLocaleDateString()}</span>
+                  </div>
+                  <div className="report-item">
+                    <span className="label">房號:</span>
+                    <span className="val highlight">{currentRoomId}</span>
+                  </div>
+                  <div className="report-item">
+                    <span className="label">BOSS 名稱:</span>
+                    <span className="val">{currentBoss.name}</span>
+                  </div>
+                  <div className="report-item total-kills-row">
+                    <span className="label">擊殺次數:</span>
+                    <span className="val count-box">{currentRoom.totalKills || 0} 次</span>
+                  </div>
+                  <div className="report-item killers-section">
+                    <span className="label">擊殺者 (房內成員):</span>
+                    <div className="killers-list">
+                      {members.join(', ')}
+                    </div>
+                  </div>
+                </div>
+                <button className="export-btn" onClick={exportReport}>🖼 匯出擊殺戰報 (PNG)</button>
+              </div>
+
               <div className="sidebar-btns">
                 <button className="leave-btn" onClick={handleLeaveClick}>下車離開 (返回大廳)</button>
               </div>
@@ -472,11 +542,11 @@ function App() {
                 <div className="list-header">
                   <span>頻道</span>
                   <span>野王名稱</span>
-                  <span>回報者</span>
                   <span>倒數計時</span>
                   <span>目前狀態</span>
                   <span>預計重生時間</span>
-                  <span>操作</span>
+                  <span>回報者</span>
+                  <span>頻道操作</span>
                 </div>
                 {keys.length === 0 ? (
                   <div className="empty-msg">目前沒有紀錄，請輸入頻道開始。</div>
@@ -499,7 +569,6 @@ function App() {
                       <div key={chKey} className={`list-row ${isReady ? 'row-ready' : ''}`}>
                         <div className="col-ch">{chKey}</div>
                         <div className="col-boss">{currentBoss.name}</div>
-                        <div className="col-reporter">{chData.reporter || '系統'}</div>
                         <div className="col-timer">{isReady ? "READY" : formatTime(remaining * 60000)}</div>
                         <div className="col-status">
                           <span className={`status-badge ${isReady ? 'status-ready' : 'status-respawning'}`}>
@@ -507,9 +576,12 @@ function App() {
                           </span>
                         </div>
                         <div className="col-window">{formatDateTime(chData.lastKill + currentBoss.time * 60000)}</div>
+                        <div className="col-reporter">
+                          <span className="reporter-badge">👤 {chData.reporter || '系統'}</span>
+                        </div>
                         <div className="col-actions">
                           {isReady && (
-                            <button className="re-kill-btn" onClick={() => addRecord(chKey)}>再次擊殺</button>
+                            <button className="re-kill-btn" onClick={() => addRecord(chKey)}>已擊殺</button>
                           )}
                           <button className="row-remove-btn" onClick={() => removeRecord(chKey)}>刪除</button>
                         </div>
