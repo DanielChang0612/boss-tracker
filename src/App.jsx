@@ -305,7 +305,7 @@ function App() {
           <div className="lobby-container">
             {/* ... 大廳內容 ... */}
             <header className="lobby-header">
-              <div className="version-tag">Build v1.2.2</div>
+              <div className="version-tag">Build v1.2.3</div>
               <h1>PiKaPi 公會和諧打王趣</h1>
               <p>專業野王紀錄管理系統</p>
             </header>
@@ -587,9 +587,7 @@ function App() {
                           <span className="reporter-badge">👤 {chData.reporter || '系統'}</span>
                         </div>
                         <div className="col-actions">
-                          {isReady && (
-                            <button className="re-kill-btn" onClick={() => addRecord(chKey)}>已擊殺</button>
-                          )}
+                          <button className="re-kill-btn" onClick={() => addRecord(chKey)}>已擊殺</button>
                           <button className="row-remove-btn" onClick={() => removeRecord(chKey)}>刪除</button>
                         </div>
                       </div>
