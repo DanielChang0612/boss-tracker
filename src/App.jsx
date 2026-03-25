@@ -38,6 +38,25 @@ function App() {
   const [joinNameInput, setJoinNameInput] = useState('');
   const [inputChannel, setInputChannel] = useState('');
   const [now, setNow] = useState(Date.now());
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+  const [availableVoices, setAvailableVoices] = useState([]);
+  const [voiceSettings, setVoiceSettings] = useState(() => {
+    const saved = localStorage.getItem('pikapi_voice_settings');
+    return saved ? JSON.parse(saved) : { voiceURI: '', rate: 1, pitch: 1 };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('pikapi_voice_settings', JSON.stringify(voiceSettings));
+  }, [voiceSettings]);
+
+  useEffect(() => {
+    const updateVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      setAvailableVoices(voices.filter(v => v.lang.includes('zh') || v.lang.includes('en')));
+    };
+    updateVoices();
+    window.speechSynthesis.onvoiceschanged = updateVoices;
+  }, []);
 
   // 1. 監聽 Firebase 雲端資料 (取代 LocalStorage 同步)
   useEffect(() => {
@@ -94,7 +113,7 @@ function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // 語音播放邏輯 (v1.3.0)
+  // 語音播放邏輯 (v1.3.1: 套用個人設定)
   const lastAlertTs = React.useRef(Date.now());
   useEffect(() => {
     if (!currentRoomId || !rooms[currentRoomId] || view !== 'room') return;
@@ -102,10 +121,17 @@ function App() {
     if (alert && alert.ts > lastAlertTs.current) {
       lastAlertTs.current = alert.ts;
       const utterance = new SpeechSynthesisUtterance(alert.message);
+      
+      // 套用個人化聲音與語速
+      const selectedVoice = availableVoices.find(v => v.voiceURI === voiceSettings.voiceURI);
+      if (selectedVoice) utterance.voice = selectedVoice;
+      utterance.rate = voiceSettings.rate;
+      utterance.pitch = voiceSettings.pitch;
       utterance.lang = 'zh-TW';
+      
       window.speechSynthesis.speak(utterance);
     }
-  }, [rooms, currentRoomId, view]);
+  }, [rooms, currentRoomId, view, voiceSettings, availableVoices]);
 
   // 生命週期管理：自動清理無人房間 (由前端定期觸發雲端刪除)
   useEffect(() => {
@@ -272,9 +298,10 @@ function App() {
   };
 
   const triggerVoiceAlert = (chKey) => {
+    const speakText = chKey.replace('CH', '頻道') + ' 已經重生';
     update(ref(db, `rooms/${currentRoomId}`), {
       voiceAlert: {
-        message: `${chKey} 已經重生`,
+        message: speakText,
         ts: Date.now(),
         sender: userName
       }
@@ -328,7 +355,7 @@ function App() {
           <div className="lobby-container">
             {/* ... 大廳內容 ... */}
             <header className="lobby-header">
-              <div className="version-tag">Build v1.3.0</div>
+              <div className="version-tag">Build v1.3.1</div>
               <h1>PiKaPi 公會和諧打王趣</h1>
               <p>專業野王紀錄管理系統</p>
             </header>
@@ -541,6 +568,7 @@ function App() {
                   </div>
                 </div>
                 <div className="header-actions">
+                  <button className="voice-config-btn" onClick={() => setShowVoiceSettings(!showVoiceSettings)}>⚙️ 語音設定</button>
                   <button className="share-btn" onClick={() => {
                     navigator.clipboard.writeText(window.location.href);
                     alert("已複製房間連結！");
@@ -548,6 +576,50 @@ function App() {
                   <button className="leave-btn" onClick={handleLeaveClick}>下車離開 (返回大廳)</button>
                 </div>
               </header>
+
+              {showVoiceSettings && (
+                <div className="voice-settings-overlay">
+                  <div className="voice-settings-card">
+                    <div className="card-header">
+                      <h3>⚙️ 個人化語音設定</h3>
+                      <button className="close-btn" onClick={() => setShowVoiceSettings(false)}>×</button>
+                    </div>
+                    <div className="settings-fields">
+                      <div className="field">
+                        <label>選擇語音庫</label>
+                        <select 
+                          value={voiceSettings.voiceURI} 
+                          onChange={(e) => setVoiceSettings({...voiceSettings, voiceURI: e.target.value})}
+                        >
+                          <option value="">(預設系統聲音)</option>
+                          {availableVoices.map(v => (
+                            <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label>語速 (Rate): {voiceSettings.rate}</label>
+                        <input 
+                          type="range" min="0.5" max="2" step="0.1" 
+                          value={voiceSettings.rate}
+                          onChange={(e) => setVoiceSettings({...voiceSettings, rate: parseFloat(e.target.value)})}
+                        />
+                      </div>
+                      <div className="field">
+                        <label>音調 (Pitch): {voiceSettings.pitch}</label>
+                        <input 
+                          type="range" min="0.5" max="2" step="0.1" 
+                          value={voiceSettings.pitch}
+                          onChange={(e) => setVoiceSettings({...voiceSettings, pitch: parseFloat(e.target.value)})}
+                        />
+                      </div>
+                    </div>
+                    <div className="card-hint">
+                      * 這些設定僅儲存在您的瀏覽器，不影響他人。
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <section className="input-section">
                 <input

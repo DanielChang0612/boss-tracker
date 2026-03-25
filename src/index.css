@@ -813,3 +813,99 @@ body {
   .room-container { flex-direction: column; }
   .room-sidebar { width: 100%; }
 }
+
+/* 語音設定面板 (v1.3.1) */
+.voice-settings-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+  backdrop-filter: blur(8px);
+}
+
+.voice-settings-card {
+  background: #1a1a1a;
+  padding: 30px;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 420px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.voice-settings-card .card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 25px;
+}
+
+.voice-settings-card .card-header h3 {
+  margin: 0;
+  color: var(--gold);
+  font-size: 1.25rem;
+}
+
+.voice-settings-card .close-btn {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 2rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 25px;
+}
+
+.settings-fields .field label {
+  display: block;
+  margin-bottom: 10px;
+  color: #ddd;
+  font-size: 0.9rem;
+}
+
+.settings-fields .field select {
+  width: 100%;
+  padding: 10px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  color: white;
+  border-radius: 8px;
+}
+
+.settings-fields .field input[type="range"] {
+  width: 100%;
+  accent-color: var(--gold);
+}
+
+.card-hint {
+  font-size: 0.75rem;
+  color: #666;
+  text-align: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 15px;
+}
+
+.voice-config-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ddd;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: 0.3s;
+}
+
+.voice-config-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+}
