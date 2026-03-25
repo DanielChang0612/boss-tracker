@@ -304,7 +304,7 @@ function App() {
           <div className="lobby-container">
             {/* ... 大廳內容 ... */}
             <header className="lobby-header">
-              <div className="version-tag">Build v1.2.0</div>
+              <div className="version-tag">Build v1.2.1</div>
               <h1>PiKaPi 公會和諧打王趣</h1>
               <p>專業野王紀錄管理系統</p>
             </header>
@@ -554,11 +554,17 @@ function App() {
                   keys.sort((a, b) => {
                     const chA = records[a];
                     const chB = records[b];
-                    const isReadyA = (now - chA.lastKill) / 60000 >= currentBoss.time;
-                    const isReadyB = (now - chB.lastKill) / 60000 >= currentBoss.time;
+                    const elapsedA = (now - chA.lastKill) / 60000;
+                    const elapsedB = (now - chB.lastKill) / 60000;
+                    const remainingA = currentBoss.time - elapsedA;
+                    const remainingB = currentBoss.time - elapsedB;
+                    const isReadyA = remainingA <= 0;
+                    const isReadyB = remainingB <= 0;
+
                     if (isReadyA && !isReadyB) return -1;
                     if (!isReadyA && isReadyB) return 1;
-                    return parseInt(a.replace('CH ', '')) - parseInt(b.replace('CH ', ''));
+                    // 皆為已重生或皆為重生中：依照剩餘時間排序 (越小排越上面)
+                    return remainingA - remainingB;
                   }).map(chKey => {
                     const chData = records[chKey];
                     if (!chData) return null;

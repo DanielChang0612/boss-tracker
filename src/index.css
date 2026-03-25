@@ -124,9 +124,30 @@ body {
   text-align: center;
 }
 
-/* 房間內計時器列表專用比例 */
+/* 房間內計時器列表專用比例 (v1.2.1: 7 欄最佳化) */
 .room-main .list-header, .room-main .list-row {
-  grid-template-columns: 80px 1fr 120px 100px 180px 80px;
+  grid-template-columns: 70px 110px 100px 110px 1fr 130px 170px;
+  font-size: 0.95rem;
+}
+
+.col-reporter .reporter-badge {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  color: #ddd;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  display: inline-block;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.row-ready {
+  background: rgba(46, 125, 50, 0.15) !important;
+  border-left: 4px solid #4caf50;
 }
 
 .list-row:last-child {
@@ -224,11 +245,11 @@ body {
 
 .col-actions {
   display: flex;
-  gap: 8px;
-  justify-content: center;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
-.row-kill-btn, .row-remove-btn {
+.row-kill-btn {
   padding: 4px 10px;
   border-radius: 4px;
   font-size: 0.75rem;
@@ -239,8 +260,37 @@ body {
   transition: all 0.2s;
 }
 
+.re-kill-btn {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.re-kill-btn:hover {
+  filter: brightness(1.2);
+  transform: scale(1.05);
+}
+
+.row-remove-btn {
+  background: transparent;
+  color: #ff5252;
+  border: 1px solid #ff5252;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.row-remove-btn:hover {
+  background: rgba(255, 82, 82, 0.1);
+}
+
 .row-kill-btn:hover { background: rgba(0, 230, 118, 0.1); border-color: var(--ready); }
-.row-remove-btn:hover { background: rgba(255, 82, 82, 0.1); border-color: var(--respawning); }
 
 .empty-msg {
   padding: 3rem;
@@ -591,14 +641,106 @@ body {
   gap: 20px;
   color: var(--gold);
 }
+/* 側邊欄擊殺報表 (v1.2.0) */
+.kill-report-panel {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 215, 0, 0.2);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 20px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
 
+.kill-report-panel h3 {
+  margin-top: 0;
+  color: #ffd700;
+  font-size: 1rem;
+  border-bottom: 1px solid rgba(255,215,0,0.2);
+  padding-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 15px 0;
+}
+
+.report-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: #ccc;
+}
+
+.report-item .label {
+  color: #888;
+}
+
+.report-item .val.highlight {
+  color: #ffd700;
+  font-weight: bold;
+}
+
+.total-kills-row {
+  background: rgba(255, 215, 0, 0.1);
+  padding: 8px;
+  border-radius: 6px;
+  margin-top: 5px;
+}
+
+.count-box {
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 800;
+  text-shadow: 0 0 10px rgba(255,215,0,0.5);
+}
+
+.killers-section {
+  flex-direction: column;
+  gap: 5px;
+}
+
+.killers-list {
+  background: rgba(0,0,0,0.2);
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #aaa;
+  line-height: 1.4;
+}
+
+.export-btn {
+  width: 100%;
+  padding: 10px;
+  background: linear-gradient(135deg, #00b09b, #96c93d);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 10px rgba(0,176,155,0.3);
+}
+
+.export-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px rgba(0,176,155,0.5);
+  filter: brightness(1.1);
+}
+
+.export-btn:active {
+  transform: translateY(0);
+}
 .loading-state button {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid var(--gold);
   color: var(--gold);
   padding: 8px 20px;
   border-radius: 8px;
-  cursor: pointer;
 }
 
 @media (max-width: 1000px) {
