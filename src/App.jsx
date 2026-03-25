@@ -215,16 +215,17 @@ function App() {
     });
   };
 
-  const addRecord = () => {
-    if (!inputChannel.trim()) return;
-    const chKey = `CH ${inputChannel.trim()}`;
-    set(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { lastKill: Date.now() });
-    setInputChannel('');
+  const addRecord = (manualChKey) => {
+    const chKey = manualChKey || `CH ${inputChannel.trim()}`;
+    if (!manualChKey && !inputChannel.trim()) return;
+    set(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
+      lastKill: Date.now(),
+      reporter: userName 
+    });
+    if (!manualChKey) setInputChannel('');
   };
 
   const removeRecord = (chKey) => {
-    const room = rooms[currentRoomId];
-    if (room.conductor !== userName) return;
     remove(ref(db, `rooms/${currentRoomId}/records/${chKey}`));
   };
 
@@ -264,7 +265,7 @@ function App() {
           <div className="lobby-container">
             {/* ... 大廳內容 ... */}
             <header className="lobby-header">
-              <div className="version-tag">Build v1.0.8</div>
+              <div className="version-tag">Build v1.1.0</div>
               <h1>PiKaPi 公會和諧打王趣</h1>
               <p>專業野王紀錄管理系統</p>
             </header>
@@ -356,7 +357,8 @@ function App() {
       if (view === 'join') {
         const room = rooms[currentRoomId];
         if (!room) return <div className="error-view">房間已不存在 <button onClick={() => setView('lobby')}>回大廳</button></div>;
-        const members = room.members || [];
+        const rawMembers = room.members || [];
+        const members = Array.isArray(rawMembers) ? rawMembers : Object.values(rawMembers);
         const isEmptyRoom = members.length === 0;
         return (
           <div className="join-container">
@@ -389,6 +391,9 @@ function App() {
         const isConductor = currentRoom.conductor === userName;
         const rawMembers = currentRoom.members || [];
         const members = Array.isArray(rawMembers) ? rawMembers : Object.values(rawMembers);
+        const records = (currentRoom && currentRoom.records) ? currentRoom.records : {};
+        const keys = Object.keys(records);
+
         return (
           <div className={`room-container boss-theme-${currentRoom.bossId}`} style={{ borderColor: currentBoss.color }}>
             <div className="room-sidebar">
@@ -451,47 +456,50 @@ function App() {
                 }}>分享房間連結</button>
               </header>
 
-              {isConductor ? (
-                <section className="input-section">
-                  <input
-                    type="text"
-                    placeholder="輸入頻道 (例: 5)"
-                    className="main-input"
-                    value={inputChannel}
-                    onChange={(e) => setInputChannel(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && addRecord()}
-                  />
-                  <button onClick={addRecord} className="add-btn">已擊殺開始計時</button>
-                </section>
-              ) : (
-                <div className="member-hint">※ 您目前是成員身分，僅「車長」可操作計時紀錄。</div>
-              )}
+              <section className="input-section">
+                <input
+                  type="text"
+                  placeholder="輸入頻道 (例: 5)"
+                  className="main-input"
+                  value={inputChannel}
+                  onChange={(e) => setInputChannel(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && addRecord()}
+                />
+                <button onClick={() => addRecord()} className="add-btn">已擊殺開始計時</button>
+              </section>
 
               <main className="list-container">
                 <div className="list-header">
                   <span>頻道</span>
                   <span>野王名稱</span>
+                  <span>回報者</span>
                   <span>倒數計時</span>
                   <span>目前狀態</span>
                   <span>預計重生時間</span>
                   <span>操作</span>
                 </div>
-                {(() => {
-                  const records = (currentRoom && currentRoom.records) ? currentRoom.records : {};
-                  const keys = Object.keys(records);
-                  if (keys.length === 0) return <div className="empty-msg">目前沒有紀錄，請輸入頻道開始。</div>;
-
-                  return keys.sort((a, b) => parseInt(a.replace('CH ', '')) - parseInt(b.replace('CH ', ''))).map(chKey => {
+                {keys.length === 0 ? (
+                  <div className="empty-msg">目前沒有紀錄，請輸入頻道開始。</div>
+                ) : (
+                  keys.sort((a, b) => {
+                    const chA = records[a];
+                    const chB = records[b];
+                    const isReadyA = (now - chA.lastKill) / 60000 >= currentBoss.time;
+                    const isReadyB = (now - chB.lastKill) / 60000 >= currentBoss.time;
+                    if (isReadyA && !isReadyB) return -1;
+                    if (!isReadyA && isReadyB) return 1;
+                    return parseInt(a.replace('CH ', '')) - parseInt(b.replace('CH ', ''));
+                  }).map(chKey => {
                     const chData = records[chKey];
                     if (!chData) return null;
                     const elapsed = (now - chData.lastKill) / 60000;
                     const remaining = currentBoss.time - elapsed;
                     const isReady = remaining <= 0;
-
                     return (
-                      <div key={chKey} className="list-row">
+                      <div key={chKey} className={`list-row ${isReady ? 'row-ready' : ''}`}>
                         <div className="col-ch">{chKey}</div>
                         <div className="col-boss">{currentBoss.name}</div>
+                        <div className="col-reporter">{chData.reporter || '系統'}</div>
                         <div className="col-timer">{isReady ? "READY" : formatTime(remaining * 60000)}</div>
                         <div className="col-status">
                           <span className={`status-badge ${isReady ? 'status-ready' : 'status-respawning'}`}>
@@ -500,14 +508,15 @@ function App() {
                         </div>
                         <div className="col-window">{formatDateTime(chData.lastKill + currentBoss.time * 60000)}</div>
                         <div className="col-actions">
-                          {isConductor && (
-                            <button className="row-remove-btn" onClick={() => removeRecord(chKey)}>刪除</button>
+                          {isReady && (
+                            <button className="re-kill-btn" onClick={() => addRecord(chKey)}>再次擊殺</button>
                           )}
+                          <button className="row-remove-btn" onClick={() => removeRecord(chKey)}>刪除</button>
                         </div>
                       </div>
                     );
-                  });
-                })()}
+                  })
+                )}
               </main>
             </div>
           </div>
