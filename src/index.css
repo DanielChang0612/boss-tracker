@@ -126,7 +126,7 @@ body {
 
 /* 房間內計時器列表專用比例 (v1.3.0: 擴展操作欄位) */
 .room-main .list-header, .room-main .list-row {
-  grid-template-columns: 70px 110px 100px 110px 1fr 130px 240px;
+  grid-template-columns: 70px 110px 100px 110px 1fr 130px 310px;
   font-size: 0.95rem;
 }
 
@@ -302,6 +302,24 @@ body {
 }
 
 .row-kill-btn:hover { background: rgba(0, 230, 118, 0.1); border-color: var(--ready); }
+
+.ready-override-btn {
+  background: #ffea00;
+  color: #000;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: 0.2s;
+  white-space: nowrap;
+}
+
+.ready-override-btn:hover {
+  filter: brightness(1.2);
+  transform: scale(1.05);
+  box-shadow: 0 0 10px rgba(255, 234, 0, 0.5);
+}
 
 .empty-msg {
   padding: 3rem;

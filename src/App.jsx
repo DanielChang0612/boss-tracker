@@ -277,6 +277,15 @@ function App() {
     remove(ref(db, `rooms/${currentRoomId}/records/${chKey}`));
   };
 
+  const markAsReady = (chKey) => {
+    if (!currentRoomId) return;
+    const readyTime = Date.now() - (currentBoss.time * 60 * 1000);
+    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
+      lastKill: readyTime,
+      reporter: userName || '系統校定' 
+    });
+  };
+
   // --- 渲染輔助 ---
 
   const currentRoom = (currentRoomId && rooms && rooms[currentRoomId]) ? rooms[currentRoomId] : null;
@@ -355,7 +364,7 @@ function App() {
           <div className="lobby-container">
             {/* ... 大廳內容 ... */}
             <header className="lobby-header">
-              <div className="version-tag">Build v1.3.1</div>
+              <div className="version-tag">Build v1.4.0</div>
               <h1>PiKaPi 公會和諧打王趣</h1>
               <p>專業野王紀錄管理系統</p>
             </header>
@@ -681,6 +690,9 @@ function App() {
                           <span className="reporter-badge">👤 {chData.reporter || '系統'}</span>
                         </div>
                         <div className="col-actions">
+                          {!isReady && (
+                            <button className="ready-override-btn" onClick={() => markAsReady(chKey)}>已重生</button>
+                          )}
                           <button className="re-kill-btn" onClick={() => addRecord(chKey)}>已擊殺</button>
                           <button className="broadcast-btn" onClick={() => triggerVoiceAlert(chKey)}>📢 廣播</button>
                           <button className="row-remove-btn" onClick={() => removeRecord(chKey)}>刪除</button>
