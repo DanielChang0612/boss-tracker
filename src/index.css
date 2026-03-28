@@ -1141,3 +1141,304 @@ body {
   transform: scale(1.05);
   box-shadow: 0 0 10px rgba(156, 39, 176, 0.5);
 }
+
+/* --- 把愛傳下去 (Pass the Love) v1.6.1 Premium --- */
+:root {
+  --love-primary: #ff4b82;
+  --love-secondary: #ff8fa3;
+  --love-bg: rgba(255, 75, 130, 0.1);
+  --love-border: rgba(255, 75, 130, 0.3);
+  --love-glow-strong: rgba(255, 75, 130, 0.6);
+  --love-glow-subtle: rgba(255, 75, 130, 0.2);
+}
+
+.inheritance-modal .modal-content {
+  background: rgba(18, 18, 20, 0.95);
+  backdrop-filter: blur(25px);
+  border: 1px solid var(--love-border);
+  box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 0 1px inset rgba(255,255,255,0.05);
+  max-width: 480px;
+  border-radius: 20px;
+  padding: 30px;
+}
+
+.inheritance-modal h2 {
+  color: #fff;
+  font-size: 1.8rem;
+  margin-bottom: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 0;
+}
+
+.inheritance-modal h2 .heart-icon { 
+  animation: beat 1.5s infinite;
+}
+
+.inheritance-modal p.desc {
+  color: #a0a0a0;
+  font-size: 0.95rem;
+  text-align: center;
+  margin-bottom: 25px;
+}
+
+.love-list {
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 8px;
+}
+
+/* Scrollbar customization for love-list */
+.love-list::-webkit-scrollbar { width: 6px; }
+.love-list::-webkit-scrollbar-thumb { background: var(--love-border); border-radius: 4px; }
+
+.love-list-item {
+  background: rgba(255, 255, 255, 0.03);
+  padding: 18px 20px;
+  border-radius: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.3s ease;
+}
+
+.love-list-item:hover {
+  background: var(--love-bg);
+  border-color: var(--love-primary);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+}
+
+.love-list-item .r-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.love-list-item .room-id {
+  color: var(--love-secondary);
+  font-weight: 800;
+  font-size: 1.1rem;
+  letter-spacing: 1px;
+}
+
+.love-list-item .room-stats {
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.love-give-btn {
+  background: linear-gradient(135deg, var(--love-primary), var(--love-secondary));
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: 0 4px 15px var(--love-glow-subtle);
+}
+
+.love-give-btn:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 20px var(--love-glow-strong);
+  filter: brightness(1.1);
+}
+
+.love-cancel-btn {
+  background: rgba(255,255,255,0.05);
+  color: #aaa;
+  border: none;
+  border-radius: 12px;
+  padding: 12px;
+  width: 100%;
+  margin-top: 20px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.love-cancel-btn:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+
+/* Receiver UI */
+.incoming-love-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(10, 5, 10, 0.85); /* Dark cinematic backdrop */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10000;
+  backdrop-filter: blur(15px);
+}
+
+.love-popup {
+  background: linear-gradient(180deg, rgba(30,15,20, 0.95) 0%, rgba(15,8,10, 0.95) 100%);
+  border: 1px solid var(--love-border);
+  padding: 50px 40px;
+  border-radius: 32px;
+  text-align: center;
+  max-width: 460px;
+  width: 90%;
+  box-shadow: 0 30px 60px rgba(0,0,0,0.5), 0 0 0 1px inset rgba(255,255,255,0.05), 0 0 100px var(--love-glow-subtle);
+  animation: popupScaleIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  position: relative;
+  overflow: hidden;
+}
+
+.love-popup::before {
+  content: '';
+  position: absolute;
+  top: -50%; left: -50%; width: 200%; height: 200%;
+  background: radial-gradient(circle at center, var(--love-bg) 0%, transparent 50%);
+  animation: spinLight 10s linear infinite;
+  pointer-events: none;
+}
+
+.love-popup-inner {
+  position: relative;
+  z-index: 10;
+}
+
+.love-popup h2 { 
+  color: #fff; 
+  margin-top: 0;
+  margin-bottom: 30px; 
+  font-size: 2.2rem; 
+  font-weight: 900;
+  text-shadow: 0 4px 20px var(--love-glow-strong);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+}
+
+.love-popup h2 .heart-icon {
+  animation: beat 1.2s infinite cubic-bezier(0.215, 0.61, 0.355, 1);
+  display: inline-block;
+}
+
+.love-message { 
+  margin-bottom: 45px; 
+  line-height: 1.8; 
+  color: #ccc; 
+  font-size: 1.1rem; 
+}
+
+.sender-highlight {
+  display: block;
+  font-size: 1.6rem;
+  font-weight: 900;
+  color: var(--love-secondary);
+  background: linear-gradient(90deg, var(--love-primary), var(--love-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin: 15px 0;
+  text-shadow: 0 0 20px var(--love-glow-subtle);
+  letter-spacing: 1px;
+}
+
+.love-actions { 
+  display: flex; 
+  gap: 15px; 
+  justify-content: center;
+}
+
+.accept-love { 
+  background: linear-gradient(135deg, var(--love-primary) 0%, var(--love-secondary) 100%);
+  color: white; 
+  border: none; 
+  padding: 16px 32px; 
+  border-radius: 16px; 
+  font-weight: 800; 
+  font-size: 1.05rem;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: 0 8px 25px var(--love-glow-subtle);
+  flex: 1;
+}
+
+.accept-love:hover { 
+  transform: translateY(-4px) scale(1.05); 
+  box-shadow: 0 12px 30px var(--love-glow-strong);
+  filter: brightness(1.15);
+}
+
+.decline-love { 
+  background: rgba(255,255,255,0.03); 
+  color: #888; 
+  border: 1px solid rgba(255,255,255,0.1); 
+  padding: 16px 24px; 
+  border-radius: 16px; 
+  font-weight: 800; 
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  flex: 0.6;
+}
+
+.decline-love:hover { 
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+}
+
+.decline-love:active { 
+  transform: scale(0.95); 
+}
+
+@keyframes popupScaleIn {
+  0% { transform: scale(0.8) translateY(30px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+@keyframes beat {
+  0%, 100% { transform: scale(1); }
+  25% { transform: scale(1.15); }
+  50% { transform: scale(1); }
+  75% { transform: scale(1.15); }
+}
+
+@keyframes spinLight {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.love-btn {
+  background: linear-gradient(135deg, var(--love-primary) 0%, var(--love-secondary) 100%);
+  color: white;
+  border: none;
+  padding: 14px 24px;
+  border-radius: 20px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 15px var(--love-glow-subtle);
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 15px;
+  width: 100%;
+  justify-content: center;
+  font-size: 1.05rem;
+  letter-spacing: 0.5px;
+}
+
+.love-btn:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 8px 25px var(--love-glow-strong);
+  filter: brightness(1.1);
+}

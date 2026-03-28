@@ -39,6 +39,7 @@ function App() {
   const [inputChannel, setInputChannel] = useState('');
   const [now, setNow] = useState(Date.now());
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+  const [showInheritanceModal, setShowInheritanceModal] = useState(false);
   const [availableVoices, setAvailableVoices] = useState([]);
   const [voiceSettings, setVoiceSettings] = useState(() => {
     const saved = localStorage.getItem('pikapi_voice_settings');
@@ -70,8 +71,15 @@ function App() {
     return onValue(roomsRef, (snapshot) => {
       const data = snapshot.val();
       setRooms(data || {});
+
+      // v1.6.0: 如果目前在房間內，但房間在雲端被刪除了（代表繼承完成或解散）
+      if (currentRoomId && view === 'room' && (!data || !data[currentRoomId])) {
+        setView('lobby');
+        setCurrentRoomId(null);
+        window.history.pushState({}, '', window.location.pathname);
+      }
     });
-  }, []);
+  }, [currentRoomId, view]);
 
   useEffect(() => {
     localStorage.setItem('artale_user_name', userName);
@@ -371,6 +379,71 @@ function App() {
     });
   };
 
+  const sendInheritanceRequest = (targetId) => {
+    if (!currentRoomId || !userName) return;
+    const targetRef = ref(db, `rooms/${targetId}/inheritanceRequest`);
+    set(targetRef, {
+      fromRoomId: currentRoomId,
+      fromConductor: userName,
+      at: Date.now(),
+      status: 'pending'
+    });
+    setShowInheritanceModal(false);
+    alert("❤️ 愛的小禮物已發送！請等待對方車長接受。");
+  };
+
+  const handleInheritanceResponse = (accept) => {
+    if (!currentRoomId || !currentRoom.inheritanceRequest) return;
+    const request = currentRoom.inheritanceRequest;
+    const fromRoomId = request.fromRoomId;
+
+    if (accept) {
+      const fromRoom = rooms[fromRoomId];
+      if (!fromRoom) {
+        alert("❌ 哎呀，對方的愛消失了（房間已解散）。");
+        update(ref(db, `rooms/${currentRoomId}/inheritanceRequest`), null);
+        return;
+      }
+
+      // 執行合併邏輯
+      const myRecords = currentRoom.records || {};
+      const fromRecords = fromRoom.records || {};
+      const mergedRecords = { ...myRecords };
+
+      Object.keys(fromRecords).forEach(ch => {
+        if (!mergedRecords[ch] || fromRecords[ch].lastKill > mergedRecords[ch].lastKill) {
+          mergedRecords[ch] = fromRecords[ch];
+        }
+      });
+
+      // 更新目前房間
+      update(ref(db, `rooms/${currentRoomId}`), {
+        records: mergedRecords,
+        inheritanceRequest: null
+      });
+
+      // 銷毀來源房間
+      remove(ref(db, `rooms/${fromRoomId}`));
+      
+      // 語音通報
+      const speakText = `已接收來自 ${request.fromConductor} 的愛，紀錄更新完成！`;
+      update(ref(db, `rooms/${currentRoomId}`), {
+        voiceAlert: {
+          message: speakText,
+          ts: Date.now(),
+          sender: '系統'
+        }
+      });
+      alert("❤️ 您已成功接收了對方的愛！");
+    } else {
+      // 拒絕
+      update(ref(db, `rooms/${currentRoomId}`), {
+        inheritanceRequest: null
+      });
+      alert("💔 您優雅地拒絕了對方的愛。");
+    }
+  };
+
   // --- 渲染輔助 ---
 
 
@@ -445,7 +518,7 @@ function App() {
           <div className="lobby-container">
             {/* ... 大廳內容 ... */}
             <header className="lobby-header">
-              <div className="version-tag">Build v1.4.0</div>
+              <div className="version-tag">Build v1.6.0</div>
               <h1>PiKaPi 公會和諧打王趣</h1>
               <p>專業野王紀錄管理系統</p>
             </header>
@@ -666,6 +739,13 @@ function App() {
                       </div>
                     </div>
                     <button className="export-btn" onClick={exportReport}>🖼 匯出擊殺戰報 (PNG)</button>
+
+                    {/* v1.6.0: 把愛傳下去 */}
+                    {isConductor && (
+                      <button className="love-btn" onClick={() => setShowInheritanceModal(true)}>
+                        ❤️ 把愛傳下去 (繼承給他房)
+                      </button>
+                    )}
                   </div>
                 );
               })()}
@@ -867,6 +947,61 @@ function App() {
   return (
     <>
       {renderContent()}
+
+      {/* 把愛傳下去 Modal (Sender) */}
+      {showInheritanceModal && (
+        <div className="modal-overlay inheritance-modal" onClick={() => setShowInheritanceModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h2><span className="heart-icon">❤️</span> 把愛傳下去</h2>
+            <p className="desc">選擇一個同王的房間，將目前的頻道紀錄傳承給他們！</p>
+            <div className="love-list">
+              {bossRooms.filter(r => r.id !== currentRoomId).map(room => (
+                <div key={room.id} className="love-list-item">
+                  <div className="r-info">
+                    <div className="room-id">房號: {room.id}</div> 
+                    <div className="room-stats">
+                      車長: {room.conductor} | 成員: {Object.keys(room.members || {}).length}
+                    </div>
+                  </div>
+                  <button className="love-give-btn" onClick={() => sendInheritanceRequest(room.id)}>把愛給他</button>
+                </div>
+              ))}
+              {bossRooms.filter(r => r.id !== currentRoomId).length === 0 && (
+                <div className="empty-msg" style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
+                  大廳目前沒有其他房在打這隻王...
+                </div>
+              )}
+            </div>
+            <button className="love-cancel-btn" onClick={() => setShowInheritanceModal(false)}>先留著愛</button>
+          </div>
+        </div>
+      )}
+
+      {/* 接收愛的告白彈窗 (Receiver) */}
+      {(currentRoom?.conductor === userName && currentRoom?.inheritanceRequest?.status === 'pending') && (
+        <div className="incoming-love-overlay">
+          <div className="love-popup">
+            <div className="love-popup-inner">
+              <h2><span className="heart-icon">❤️</span> 愛的告白</h2>
+              <div className="love-message">
+                來自 <strong>房號 {currentRoom.inheritanceRequest.fromRoomId}</strong> 的車長
+                <span className="sender-highlight">{currentRoom.inheritanceRequest.fromConductor}</span>
+                想要把愛傳給你，是否接受他的愛？
+              </div>
+              <div className="love-actions">
+                <button 
+                  className="accept-love" 
+                  onClick={(e) => { e.stopPropagation(); handleInheritanceResponse(true); }}
+                >接受他的愛 ❤️</button>
+                <button 
+                  className="decline-love" 
+                  onClick={(e) => { e.stopPropagation(); handleInheritanceResponse(false); }}
+                >殘忍拒絕 💔</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showLeaveModal && currentRoom && (
         <div className="modal-overlay">
