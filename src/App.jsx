@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from './firebase';
-import { ref, onValue, set, update, remove } from 'firebase/database';
+import { ref, onValue, set, update, remove, onDisconnect } from 'firebase/database';
 import html2canvas from 'html2canvas';
 
 // BOSS 定義
@@ -44,6 +44,12 @@ function App() {
     const saved = localStorage.getItem('pikapi_voice_settings');
     return saved ? JSON.parse(saved) : { voiceURI: '', rate: 1, pitch: 1 };
   });
+
+  // --- 關鍵導出資料 (需在 Hook 之前宣告以供 Dependency Array 使用) ---
+  const currentRoom = (currentRoomId && rooms && rooms[currentRoomId]) ? rooms[currentRoomId] : null;
+  const currentBoss = (currentRoom && currentRoom.bossId && BOSSES[currentRoom.bossId])
+    ? BOSSES[currentRoom.bossId]
+    : BOSSES[selectedBossId] || Object.values(BOSSES)[0];
 
   useEffect(() => {
     localStorage.setItem('pikapi_voice_settings', JSON.stringify(voiceSettings));
@@ -97,7 +103,7 @@ function App() {
     if (currentRoomId && rooms && rooms[currentRoomId] && view === 'room' && userName) {
       const room = rooms[currentRoomId];
       const rawMembers = room.members || [];
-      const members = Array.isArray(rawMembers) ? rawMembers : Object.values(rawMembers);
+      const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
       if (!members.includes(userName)) {
         alert("【系統提醒】您已被請下車，將跳轉回大廳。");
         setCurrentRoomId(null);
@@ -138,6 +144,14 @@ function App() {
     const cleanup = () => {
       Object.keys(rooms || {}).forEach(id => {
         const room = rooms[id];
+        const rawMembers = room.members || {};
+        const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
+        
+        // 如果房間沒人但沒設置 emptySince (例如斷線造成)，在此補上
+        if (members.length === 0 && !room.emptySince) {
+          update(ref(db, `rooms/${id}`), { emptySince: Date.now() });
+        }
+
         if (room.emptySince && (Date.now() - room.emptySince > ROOM_AUTO_DELETE_MS)) {
           remove(ref(db, `rooms/${id}`));
         }
@@ -146,6 +160,30 @@ function App() {
     const interval = setInterval(cleanup, 60000);
     return () => clearInterval(interval);
   }, [rooms]);
+
+  // 斷線自動離開偵測 (onDisconnect)
+  useEffect(() => {
+    if (currentRoomId && userName && view === 'room') {
+      const memberRef = ref(db, `rooms/${currentRoomId}/members/${userName}`);
+      onDisconnect(memberRef).remove();
+    }
+  }, [currentRoomId, userName, view]);
+
+  // 車長自動繼承邏輯：若現任車長不在名單中，由第一位位成員自動繼承
+  useEffect(() => {
+    if (currentRoomId && view === 'room' && currentRoom) {
+      const rawMembers = currentRoom.members || {};
+      const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
+      const isConductorInRoom = members.includes(currentRoom.conductor);
+
+      if (members.length > 0 && !isConductorInRoom) {
+        // 自動指派第一位成員為新車長
+        update(ref(db, `rooms/${currentRoomId}`), {
+          conductor: members[0]
+        });
+      }
+    }
+  }, [currentRoomId, view, currentRoom]);
 
   // --- 邏輯函式 ---
 
@@ -157,7 +195,7 @@ function App() {
       bossId: selectedBossId,
       password: Math.random().toString(36).substr(2, 4), // 隨機預設密碼
       conductor: newRoomConductor.trim(),
-      members: [newRoomConductor.trim()],
+      members: { [newRoomConductor.trim()]: { joinedAt: Date.now(), startKills: 0 } },
       records: {},
       totalKills: 0,
       createdAt: Date.now(),
@@ -183,24 +221,25 @@ function App() {
       return;
     }
 
-    const rawMembersJoin = room.members || [];
-    const membersJoin = Array.isArray(rawMembersJoin) ? rawMembersJoin : Object.values(rawMembersJoin);
+    const rawMembersJoin = room.members || {};
+    const membersJoin = Array.isArray(rawMembersJoin) ? rawMembersJoin : Object.keys(rawMembersJoin);
     if (membersJoin.length >= 4 && !membersJoin.includes(joinNameInput.trim())) {
       alert("我還沒上車阿！(房間已滿 4 人)");
       return;
     }
 
     const roomRef = ref(db, `rooms/${currentRoomId}`);
-    const rawMembers = room.members || [];
-    const members = Array.isArray(rawMembers) ? rawMembers : Object.values(rawMembers);
+    const rawMembers = room.members || {};
+    const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
     const isEmptyRoom = members.length === 0;
-    const nextMembers = members.includes(joinNameInput.trim())
-      ? members
-      : [...members, joinNameInput.trim()];
 
+    // 將成員以姓名為 key 寫入，支援斷線移除與個人里程統計
+    update(ref(db, `rooms/${currentRoomId}/members`), {
+      [joinNameInput.trim()]: { joinedAt: Date.now(), startKills: room.totalKills || 0 }
+    });
+    
     update(roomRef, {
       conductor: isEmptyRoom ? joinNameInput.trim() : room.conductor,
-      members: nextMembers,
       emptySince: null
     });
 
@@ -230,15 +269,16 @@ function App() {
   const confirmLeave = () => {
     const room = rooms[currentRoomId];
     if (room) {
-      const rawMembers = room.members || [];
-      const members = Array.isArray(rawMembers) ? rawMembers : Object.values(rawMembers);
-      const nextMembers = members.filter(m => m !== userName);
+      const rawMembers = room.members || {};
+      const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers).filter(m => m !== userName);
       const isConductor = room.conductor === userName;
 
+      // 移除特定成員
+      remove(ref(db, `rooms/${currentRoomId}/members/${userName}`));
+
       update(ref(db, `rooms/${currentRoomId}`), {
-        members: nextMembers,
-        conductor: isConductor ? (nextMembers[0] || room.conductor) : room.conductor,
-        emptySince: nextMembers.length === 0 ? Date.now() : null
+        conductor: isConductor ? (members[0] || room.conductor) : room.conductor,
+        emptySince: members.length === 0 ? Date.now() : null
       });
     }
     setShowLeaveModal(false);
@@ -250,24 +290,64 @@ function App() {
   const removeMember = (targetName) => {
     const room = rooms[currentRoomId];
     if (room.conductor !== userName) return;
-    const members = room.members || [];
+    remove(ref(db, `rooms/${currentRoomId}/members/${targetName}`));
+  };
+
+  const transferConductor = (targetName) => {
+    if (!currentRoomId || !userName) return;
+    const room = rooms[currentRoomId];
+    if (room.conductor !== userName) return;
     update(ref(db, `rooms/${currentRoomId}`), {
-      members: members.filter(m => m !== targetName)
+      conductor: targetName
+    });
+    alert(`💡 已將車長權限轉移給：${targetName}`);
+  };
+
+  const toggleWildBossExplore = () => {
+    if (!currentRoomId || !userName) return;
+    const room = rooms[currentRoomId];
+    const explores = room.wildBossExplore || {};
+    const isActive = explores[userName];
+    
+    // 如果目前是關閉狀態，要開啟；如果是開啟狀態，要關閉
+    update(ref(db, `rooms/${currentRoomId}/wildBossExplore`), {
+      [userName]: isActive ? null : true
+    });
+
+    // v1.5.2: 新增語音通報功能
+    if (!isActive) {
+      const speakText = `${userName} 已經去打野了`;
+      update(ref(db, `rooms/${currentRoomId}`), {
+        voiceAlert: {
+          message: speakText,
+          ts: Date.now(),
+          sender: userName
+        }
+      });
+    }
+  };
+
+  const handleStationed = (chKey) => {
+    if (!currentRoomId || !userName) return;
+    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
+      stationed: userName 
     });
   };
 
   const addRecord = (manualChKey) => {
     const chKey = manualChKey || `CH ${inputChannel.trim()}`;
     if (!manualChKey && !inputChannel.trim()) return;
-    set(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
+    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
       lastKill: Date.now(),
-      reporter: userName 
+      reporter: userName,
+      stationed: null // 清除佔位
     });
     
     // 全域擊殺統計累加
     const room = rooms[currentRoomId];
     update(ref(db, `rooms/${currentRoomId}`), { 
-      totalKills: (room.totalKills || 0) + 1 
+      totalKills: (room.totalKills || 0) + 1,
+      wildBossExplore: null // 清除打野狀態
     });
 
     if (!manualChKey) setInputChannel('');
@@ -282,16 +362,17 @@ function App() {
     const readyTime = Date.now() - (currentBoss.time * 60 * 1000);
     update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
       lastKill: readyTime,
-      reporter: userName || '系統校定' 
+      reporter: userName || '系統校定',
+      stationed: null // 清除佔位
+    });
+    // 同時清除打野狀態
+    update(ref(db, `rooms/${currentRoomId}`), { 
+      wildBossExplore: null 
     });
   };
 
   // --- 渲染輔助 ---
 
-  const currentRoom = (currentRoomId && rooms && rooms[currentRoomId]) ? rooms[currentRoomId] : null;
-  const currentBoss = (currentRoom && currentRoom.bossId && BOSSES[currentRoom.bossId])
-    ? BOSSES[currentRoom.bossId]
-    : BOSSES[selectedBossId] || Object.values(BOSSES)[0];
 
   const formatTime = (ms) => {
     const totalSec = Math.floor(ms / 1000);
@@ -400,7 +481,7 @@ function App() {
                     <div className="col-timer">
                       {(() => {
                         const m = room.members || [];
-                        const arr = Array.isArray(m) ? m : Object.values(m);
+                        const arr = Array.isArray(m) ? m : Object.keys(m);
                         return arr.length;
                       })()}/4
                     </div>
@@ -408,7 +489,7 @@ function App() {
                     <div className="col-window">
                       {(() => {
                         const m = room.members || [];
-                        const arr = Array.isArray(m) ? m : Object.values(m);
+                        const arr = Array.isArray(m) ? m : Object.keys(m);
                         return arr.length === 0;
                       })() ? (
                         <span className="delete-countdown">無成員 (清理倒數: {formatTime(ROOM_AUTO_DELETE_MS - (now - room.emptySince))})</span>
@@ -417,7 +498,7 @@ function App() {
                     <div className="col-actions">
                       {(() => {
                         const m = room.members || [];
-                        const arr = Array.isArray(m) ? m : Object.values(m);
+                        const arr = Array.isArray(m) ? m : Object.keys(m);
                         return arr.length >= 4;
                       })() ? (
                         <div className="full-room-status">
@@ -457,7 +538,7 @@ function App() {
         const room = rooms[currentRoomId];
         if (!room) return <div className="error-view">房間已不存在 <button onClick={() => setView('lobby')}>回大廳</button></div>;
         const rawMembers = room.members || [];
-        const members = Array.isArray(rawMembers) ? rawMembers : Object.values(rawMembers);
+        const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
         const isEmptyRoom = members.length === 0;
         return (
           <div className="join-container">
@@ -489,7 +570,7 @@ function App() {
       if (view === 'room' && currentRoom) {
         const isConductor = currentRoom.conductor === userName;
         const rawMembers = currentRoom.members || [];
-        const members = Array.isArray(rawMembers) ? rawMembers : Object.values(rawMembers);
+        const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
         const records = (currentRoom && currentRoom.records) ? currentRoom.records : {};
         const keys = Object.keys(records);
 
@@ -507,10 +588,17 @@ function App() {
                 <h3>車內成員 {members.length}/4</h3>
                 {members.map(m => (
                   <div key={m} className="member-item">
-                    <span>{m === currentRoom.conductor ? '🚗' : '👤'} {m}</span>
-                    {isConductor && m !== userName && (
-                      <button onClick={() => removeMember(m)}>×</button>
-                    )}
+                    <div className="member-info">
+                      <span>{m === currentRoom.conductor ? '🚗' : '👤'} {m}</span>
+                    </div>
+                    <div className="member-actions">
+                      {isConductor && m !== userName && (
+                        <>
+                          <button className="transfer-btn-mini" onClick={() => transferConductor(m)} title="轉移車長權限">轉移</button>
+                          <button className="remove-btn-mini" onClick={() => removeMember(m)}>×</button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -521,39 +609,84 @@ function App() {
                 <p>地區: {currentBoss.area}</p>
               </div>
 
-              {/* 擊殺報告 (v1.2.0) */}
-              <div className="kill-report-panel" id="kill-report-card">
-                <h3>📊 擊殺報告 (TODAY)</h3>
-                <div className="report-content">
-                  <div className="report-item">
-                    <span className="label">日期:</span>
-                    <span className="val">{new Date().toLocaleDateString()}</span>
-                  </div>
-                  <div className="report-item">
-                    <span className="label">房號:</span>
-                    <span className="val highlight">{currentRoomId}</span>
-                  </div>
-                  <div className="report-item">
-                    <span className="label">BOSS 名稱:</span>
-                    <span className="val">{currentBoss.name}</span>
-                  </div>
-                  <div className="report-item total-kills-row">
-                    <span className="label">擊殺次數:</span>
-                    <span className="val count-box">{currentRoom.totalKills || 0} 次</span>
-                  </div>
-                  <div className="report-item killers-section">
-                    <span className="label">擊殺者 (房內成員):</span>
-                    <div className="killers-list">
-                      {members.join(', ')}
+              {/* 擊殺報告 (v1.5.2: 整合個人里程) */}
+              {(() => {
+                const myData = (currentRoom.members && typeof currentRoom.members[userName] === 'object') 
+                  ? currentRoom.members[userName] 
+                  : { joinedAt: currentRoom.createdAt, startKills: 0 };
+                  
+                const mySessionKills = (currentRoom.totalKills || 0) - (myData.startKills || 0);
+                const mySessionDurationMs = now - (myData.joinedAt || currentRoom.createdAt);
+                const mySessionHours = mySessionDurationMs / 3600000;
+                const myEfficiency = (mySessionHours > 0.01) ? (mySessionKills / mySessionHours).toFixed(1) : "---";
+
+                return (
+                  <div className="kill-report-panel" id="kill-report-card">
+                    <h3>📊 擊殺報告 (TODAY)</h3>
+                    <div className="report-content">
+                      <div className="report-group-title">房內總累計 (Overall)</div>
+                      <div className="report-item">
+                        <span className="label">房號 / BOSS:</span>
+                        <span className="val">{currentRoomId} - {currentBoss.name}</span>
+                      </div>
+                      <div className="report-item total-kills-row">
+                        <span className="label">總擊殺次數:</span>
+                        <span className="val count-box">{currentRoom.totalKills || 0} 次</span>
+                      </div>
+                      <div className="report-item">
+                        <span className="label">總共航程:</span>
+                        <span className="val">{formatTime(now - currentRoom.createdAt)}</span>
+                      </div>
+
+                      <div className="report-divider"></div>
+                      
+                      <div className="report-group-title guest-title">您的隨車里程 (Your Session)</div>
+                      <div className="report-personal-grid">
+                        <div className="personal-stat-card">
+                          <span className="p-label">已隨車</span>
+                          <span className="p-val">{formatTime(mySessionDurationMs)}</span>
+                        </div>
+                        <div className="personal-stat-card">
+                          <span className="p-label">共獵數</span>
+                          <span className="p-val">{mySessionKills} <small>次</small></span>
+                        </div>
+                        <div className="personal-stat-card">
+                          <span className="p-label">時薪效率</span>
+                          <span className="p-val">{myEfficiency} <small>隻/hr</small></span>
+                        </div>
+                      </div>
+
+                      <div className="report-divider"></div>
+
+                      <div className="report-item killers-section">
+                        <span className="label">目前成員:</span>
+                        <div className="killers-list">
+                          {members.join(', ')}
+                        </div>
+                      </div>
                     </div>
+                    <button className="export-btn" onClick={exportReport}>🖼 匯出擊殺戰報 (PNG)</button>
                   </div>
-                </div>
-                <button className="export-btn" onClick={exportReport}>🖼 匯出擊殺戰報 (PNG)</button>
-              </div>
+                );
+              })()}
             </div>
 
             <div className="room-main">
-              <header className="room-header">
+                {(() => {
+                  const explores = currentRoom.wildBossExplore || {};
+                  const explorerNames = Object.keys(explores).filter(k => explores[k]);
+                  if (explorerNames.length === 0) return null;
+                  return (
+                    <div className="wild-boss-broadcast">
+                      <div className="broadcast-icon">📢</div>
+                      <div className="broadcast-text">
+                        <span className="explorers">{explorerNames.join(', ')}</span> 正在探索野王中... (各頻道的野王都還沒出生)
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <header className="room-header">
                 <div className="room-info">
                   <h2>房號: <span className="gold-text">{currentRoomId}</span></h2>
                   <div className="room-password">
@@ -583,6 +716,12 @@ function App() {
                     alert("已複製房間連結！");
                   }}>分享房間連結</button>
                   <button className="leave-btn" onClick={handleLeaveClick}>下車離開 (返回大廳)</button>
+                  <button 
+                    className={`explore-toggle-btn ${currentRoom.wildBossExplore?.[userName] ? 'active' : ''}`} 
+                    onClick={toggleWildBossExplore}
+                  >
+                    {currentRoom.wildBossExplore?.[userName] ? '❌ 取消打野狀態' : '🍖 餓了去打野'}
+                  </button>
                 </div>
               </header>
 
@@ -648,7 +787,6 @@ function App() {
                   <span>野王名稱</span>
                   <span>倒數計時</span>
                   <span>目前狀態</span>
-                  <span>預計重生時間</span>
                   <span>回報者</span>
                   <span>頻道操作</span>
                 </div>
@@ -677,7 +815,14 @@ function App() {
                     const isReady = remaining <= 0;
                     return (
                       <div key={chKey} className={`list-row ${isReady ? 'row-ready' : ''}`}>
-                        <div className="col-ch">{chKey}</div>
+                        <div className="col-ch">
+                          {chKey}
+                          {chData.stationed && (
+                            <div className="stationed-tag" title={`${chData.stationed} 前往頻道佔位`}>
+                              📍 {chData.stationed} 佔位
+                            </div>
+                          )}
+                        </div>
                         <div className="col-boss">{currentBoss.name}</div>
                         <div className="col-timer">{isReady ? "READY" : formatTime(remaining * 60000)}</div>
                         <div className="col-status">
@@ -685,11 +830,11 @@ function App() {
                             {isReady ? '已重生' : '重生中'}
                           </span>
                         </div>
-                        <div className="col-window">{formatDateTime(chData.lastKill + currentBoss.time * 60000)}</div>
                         <div className="col-reporter">
                           <span className="reporter-badge">👤 {chData.reporter || '系統'}</span>
                         </div>
                         <div className="col-actions">
+                          <button className="stationed-btn" onClick={() => handleStationed(chKey)}>已佔位</button>
                           {!isReady && (
                             <button className="ready-override-btn" onClick={() => markAsReady(chKey)}>已重生</button>
                           )}
@@ -744,7 +889,7 @@ function App() {
             </div>
             {(() => {
               const m = currentRoom.members || [];
-              const arr = Array.isArray(m) ? m : Object.values(m);
+              const arr = Array.isArray(m) ? m : Object.keys(m);
               return arr.length === 1;
             })() && (
                 <div className="warning-box">

@@ -124,9 +124,9 @@ body {
   text-align: center;
 }
 
-/* 房間內計時器列表專用比例 (v1.3.0: 擴展操作欄位) */
+/* 房間內計時器列表專用比例 (v1.5.1: 移除預計重生時間) */
 .room-main .list-header, .room-main .list-row {
-  grid-template-columns: 70px 110px 100px 110px 1fr 130px 310px;
+  grid-template-columns: 80px 120px 110px 120px 1fr 320px;
   font-size: 0.95rem;
 }
 
@@ -158,7 +158,14 @@ body {
   background: rgba(255, 255, 255, 0.03);
 }
 
-.col-ch { font-weight: 800; color: var(--gold); }
+.col-ch { 
+  font-weight: 800; 
+  color: var(--gold); 
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
 .col-boss { color: var(--text-secondary); font-size: 0.85rem; }
 .col-timer { font-family: 'Courier New', monospace; font-weight: 700; font-size: 1.1rem; }
 .col-window { font-size: 0.8rem; color: var(--text-secondary); }
@@ -517,12 +524,56 @@ body {
 .member-item {
   display: flex;
   justify-content: space-between;
-  padding: 8px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  align-items: center;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.member-item button {
-  background: none; border: none; color: #ff5252; cursor: pointer;
+.member-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.member-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.transfer-btn-mini {
+  background: var(--gold);
+  color: #000;
+  border: none;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.transfer-btn-mini:hover {
+  background: var(--gold-glow);
+  transform: scale(1.05);
+}
+
+.remove-btn-mini {
+  background: rgba(255, 82, 82, 0.1);
+  color: #ff5252;
+  border: 1px solid #ff5252;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.remove-btn-mini:hover {
+  background: #ff5252;
+  color: white;
 }
 
 .share-btn {
@@ -776,6 +827,65 @@ body {
   margin-top: 5px;
 }
 
+.report-group-title {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #ffd700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-top: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.guest-title {
+  color: #ce93d8 !important; /* 紫色標註個人數據 */
+}
+
+.report-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 12px 0;
+}
+
+.report-personal-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.personal-stat-card {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 10px 4px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: center;
+}
+
+.p-label {
+  font-size: 0.6rem;
+  color: #888;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.p-val {
+  font-size: 1rem;
+  color: #fff;
+  font-weight: 700;
+}
+
+.p-val small {
+  font-size: 0.7rem;
+  color: #888;
+  margin-left: 2px;
+}
+
 .count-box {
   color: #fff;
   font-size: 1.1rem;
@@ -926,4 +1036,108 @@ body {
 .voice-config-btn:hover {
   background: rgba(255, 255, 255, 0.15);
   color: white;
+}
+
+/* 打野廣播橫幅 (v1.5.0) */
+.wild-boss-broadcast {
+  background: linear-gradient(90deg, rgba(255, 152, 0, 0.15) 0%, rgba(255, 87, 34, 0.15) 100%);
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  padding: 12px 20px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  animation: slideDown 0.5s ease-out, glowPulse 2s infinite alternate;
+}
+
+.broadcast-icon {
+  font-size: 1.5rem;
+}
+
+.broadcast-text {
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.broadcast-text .explorers {
+  color: #ff9800;
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes glowPulse {
+  from { box-shadow: 0 0 5px rgba(255, 152, 0, 0.2); }
+  to { box-shadow: 0 0 15px rgba(255, 152, 0, 0.5); }
+}
+
+/* 餓了去打野按鈕 */
+.explore-toggle-btn {
+  background: linear-gradient(135deg, #ff9800 0%, #ff5722 100%);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-size: 0.9rem;
+  width: 100%;
+  max-width: 180px;
+  text-align: center;
+  box-shadow: 0 4px 15px rgba(255, 87, 34, 0.3);
+}
+
+.explore-toggle-btn.active {
+  background: #333;
+  color: #ff5722;
+  border: 1px solid #ff5722;
+}
+
+.explore-toggle-btn:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.1);
+}
+
+/* 已佔位功能 (v1.5.0) */
+.stationed-tag {
+  background: rgba(156, 39, 176, 0.2);
+  color: #e1bee7;
+  border: 1px solid rgba(156, 39, 176, 0.5);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  white-space: nowrap;
+  animation: flash 2s infinite;
+}
+
+@keyframes flash {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; box-shadow: 0 0 8px rgba(156, 39, 176, 0.4); }
+  100% { opacity: 0.6; }
+}
+
+.stationed-btn {
+  background: linear-gradient(135deg, #9c27b0 0%, #673ab7 100%);
+  color: white;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.2s;
+  white-space: nowrap;
+}
+
+.stationed-btn:hover {
+  filter: brightness(1.2);
+  transform: scale(1.05);
+  box-shadow: 0 0 10px rgba(156, 39, 176, 0.5);
 }
