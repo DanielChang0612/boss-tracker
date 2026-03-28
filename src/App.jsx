@@ -46,6 +46,9 @@ function App() {
     return saved ? JSON.parse(saved) : { voiceURI: '', rate: 1, pitch: 1 };
   });
 
+  // v1.6.2: 修復同步延遲導致的 Race Condition (誤判下車)
+  const userHasSeenSelfInRoom = useRef(false);
+
   // --- 關鍵導出資料 (需在 Hook 之前宣告以供 Dependency Array 使用) ---
   const currentRoom = (currentRoomId && rooms && rooms[currentRoomId]) ? rooms[currentRoomId] : null;
   const currentBoss = (currentRoom && currentRoom.bossId && BOSSES[currentRoom.bossId])
@@ -112,12 +115,23 @@ function App() {
       const room = rooms[currentRoomId];
       const rawMembers = room.members || [];
       const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
-      if (!members.includes(userName)) {
+      
+      const isInRoom = members.includes(userName);
+
+      if (isInRoom) {
+        // 使用者確實已出現在雲端名單中，標記為已上車
+        userHasSeenSelfInRoom.current = true;
+      } else if (userHasSeenSelfInRoom.current) {
+        // 使用者先前已上車，但現在名單中沒人了 -> 代表被踢除或房間發生異動
         alert("【系統提醒】您已被請下車，將跳轉回大廳。");
+        userHasSeenSelfInRoom.current = false;
         setCurrentRoomId(null);
         setView('lobby');
         window.history.pushState({}, '', window.location.pathname);
       }
+    } else if (view === 'lobby') {
+      // 回到大廳時重置狀態
+      userHasSeenSelfInRoom.current = false;
     }
   }, [rooms, currentRoomId, userName, view]);
 
@@ -214,6 +228,7 @@ function App() {
 
     setUserName(newRoomConductor.trim());
     setCurrentRoomId(id);
+    userHasSeenSelfInRoom.current = false; // 重置追蹤
     setView('room');
     setShowCreateModal(false);
     window.history.pushState({}, '', `#${id}`);
@@ -252,6 +267,7 @@ function App() {
     });
 
     setUserName(joinNameInput.trim());
+    userHasSeenSelfInRoom.current = false; // 重置追蹤
     setView('room');
     window.history.pushState({}, '', `#${currentRoomId}`);
     setPasswordInput(''); // 清空
@@ -267,6 +283,7 @@ function App() {
   const backToLobby = () => {
     window.history.pushState({}, '', window.location.pathname); // 清除 Hash，避免 Effect 再次跳轉
     setCurrentRoomId(null);
+    userHasSeenSelfInRoom.current = false; // 重置追蹤
     setView('lobby');
   };
 
