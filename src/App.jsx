@@ -1103,9 +1103,9 @@ function App() {
         const wildExplorers = Object.entries(currentRoom.wildBossExplore || {}).filter(([,v]) => v).map(([k]) => k);
 
         return (
-          <div className={`room-container boss-theme-${currentRoom.bossId}`}>
+          <div className={`room-container-v16 boss-theme-${currentRoom.bossId} fade-in`}>
             {/* 左側欄 */}
-            <aside className="room-sidebar">
+            <aside className="v16-sidebar">
               <div className="my-identity">
                 <label>您的身分：</label>
                 <div className="identity-val">
@@ -1184,7 +1184,7 @@ function App() {
             </aside>
 
             {/* 右側主區 */}
-            <main className="room-main">
+            <main className="v16-main">
               {wildExplorers.length > 0 && (
                 <div className="wild-boss-broadcast">
                   <span className="broadcast-icon">🍖</span>
@@ -1215,19 +1215,7 @@ function App() {
                 </div>
               </div>
 
-              <div className="input-section">
-                <input
-                  type="text"
-                  value={inputChannel}
-                  onChange={e => setInputC
-��設定</button>
-                  <button className="v16-btn-share" onClick={() => navigator.clipboard.writeText(window.location.href).then(() => alert('連結已複製！'))}>分享房間連結</button>
-                  <button className="v16-btn-leave" onClick={() => setShowLeaveModal(true)}>下車離開 (返回大廳)</button>
-                  <button className={`v16-btn-wild ${currentRoom.wildBossExplore?.[userName] ? 'active' : ''}`} onClick={toggleWildBossExplore}>
-                    {currentRoom.wildBossExplore?.[userName] ? '❌ 取消打野' : '🍖 餓了去打野'}
-                  </button>
-                </div>
-              </header>
+
 
               <section className="v16-input-section">
                 <input type="text" value={inputChannel} onChange={e => setInputChannel(e.target.value)} placeholder="輸入頻道 (例: 5)" onKeyPress={e => e.key === 'Enter' && addRecord()} className="v16-ch-input" />
