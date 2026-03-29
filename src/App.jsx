@@ -36,6 +36,7 @@ const getRankInfo = (kills = 0, hours = 0) => {
 
 function App() {
   const [rooms, setRooms] = useState({});
+  const [roomSummaries, setRoomSummaries] = useState({}); // 補回缺失的摘要 State
   const [userName, setUserName] = useState(localStorage.getItem('artale_user_name') || '');
   const [currentRoomId, setCurrentRoomId] = useState(window.location.hash.slice(1) || new URLSearchParams(window.location.search).get('room') || null);
   const [currentUser, setCurrentUser] = useState(null);
@@ -81,6 +82,26 @@ function App() {
     ? BOSSES[currentRoom.bossId]
     : BOSSES[selectedBossId] || Object.values(BOSSES)[0];
 
+  // 1. 初始化大廳摘要監聽 (超省流量)
+  useEffect(() => {
+    const summariesRef = ref(db, 'roomSummaries');
+    return onValue(summariesRef, (snapshot) => {
+      setRoomSummaries(snapshot.val() || {});
+    });
+  }, []);
+
+  // 2. 當進入特定房間時，才開啟該房的詳情監聽 (精確投放)
+  useEffect(() => {
+    if (!currentRoomId) return;
+    const individualRoomRef = ref(db, `rooms/${currentRoomId}`);
+    return onValue(individualRoomRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setRooms(prev => ({ ...prev, [currentRoomId]: data }));
+      }
+    });
+  }, [currentRoomId]);
+
   useEffect(() => {
     localStorage.setItem('pikapi_voice_settings', JSON.stringify(voiceSettings));
   }, [voiceSettings]);
@@ -94,19 +115,7 @@ function App() {
     window.speechSynthesis.onvoiceschanged = updateVoices;
   }, []);
 
-  useEffect(() => {
-    const roomsRef = ref(db, 'rooms');
-    return onValue(roomsRef, (snapshot) => {
-      const data = snapshot.val();
-      setRooms(data || {});
-
-      if (currentRoomId && view === 'room' && (!data || !data[currentRoomId])) {
-        setView('lobby');
-        setCurrentRoomId(null);
-        window.history.pushState({}, '', window.location.pathname);
-      }
-    });
-  }, [currentRoomId, view]);
+  // 已移至摘要監聽與單房監聽，此處拔除以節省流量
 
   // 全局點擊關閉選單 (v4.5)
   useEffect(() => {
@@ -423,24 +432,38 @@ function App() {
   const createRoom = () => {
     if (!newRoomConductor.trim()) return alert("請輸入車長名稱");
     const id = Math.random().toString(36).substr(2, 6).toUpperCase();
+    const conductor = userName;
     const newRoom = {
       id,
       bossId: selectedBossId,
       password: Math.random().toString(36).substr(2, 4),
-      conductor: newRoomConductor.trim(),
-      members: { [newRoomConductor.trim()]: { joinedAt: Date.now(), startKills: 0 } },
+      conductor,
+      members: { [userName]: true },
       records: {},
       totalKills: 0,
-      createdAt: Date.now(),
-      emptySince: null
+      createdAt: Date.now()
     };
-    set(ref(db, `rooms/${id}`), newRoom);
-    setUserName(newRoomConductor.trim());
-    setCurrentRoomId(id);
-    setView('room');
-    setSessionStartTime(Date.now()); // 開始計時
-    setShowCreateModal(false);
-    window.history.pushState({}, '', `#${id}`);
+    
+    // 同步寫入摘要，讓大廳監聽超省流量
+    const summary = {
+      id,
+      bossId: selectedBossId,
+      conductor,
+      totalKills: 0,
+      createdAt: Date.now(),
+      onlineCount: 1
+    };
+
+    update(ref(db), {
+      [`rooms/${id}`]: newRoom,
+      [`roomSummaries/${id}`]: summary,
+      [`users/${currentUser.uid}/rooms/${id}`]: true
+    }).then(() => {
+      setCurrentRoomId(id);
+      setView('room');
+      setSessionStartTime(Date.now());
+      setSessionKills(0);
+    });
   };
 
   const joinRoom = () => {
@@ -518,7 +541,7 @@ function App() {
   };
 
   const handleStationed = (chKey) => {
-    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { stationed: userName });
+    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { occupant: userName });
   };
 
   const addRecord = (manualChKey) => {
@@ -527,13 +550,14 @@ function App() {
     update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
       lastKill: Date.now(),
       reporter: userName,
-      stationed: null
+      occupant: null
     });
 
-    // 增加房間總擊殺
-    update(ref(db, `rooms/${currentRoomId}`), { 
-      totalKills: (currentRoom.totalKills || 0) + 1,
-      wildBossExplore: null
+    // 增加房間總擊殺 (同步更新詳情與摘要)
+    update(ref(db), { 
+      [`rooms/${currentRoomId}/totalKills`]: (currentRoom.totalKills || 0) + 1,
+      [`roomSummaries/${currentRoomId}/totalKills`]: (currentRoom.totalKills || 0) + 1,
+      [`rooms/${currentRoomId}/wildBossExplore`]: null
     });
 
     // 增加個人與 Boss 個別統計
@@ -574,7 +598,7 @@ function App() {
     update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
       lastKill: readyTime,
       reporter: userName,
-      stationed: null
+      occupant: null
     });
   };
 
@@ -607,6 +631,32 @@ function App() {
       update(ref(db, `rooms/${currentRoomId}`), { inheritanceRequest: null });
     }
   };
+  const handleRespawned = (ch) => {
+    if (!currentRoomId || !currentBoss) return;
+    const recordsRef = ref(db, `rooms/${currentRoomId}/records/${ch}`);
+    const respawnTime = Date.now() - (currentBoss.time * 60000);
+    update(recordsRef, {
+      lastKill: respawnTime,
+      reporter: userName,
+      timestamp: Date.now()
+    });
+  };
+
+  const broadcastStatus = (ch) => {
+    if (!currentRoomId || !currentBoss) return;
+    const chNum = ch.replace('CH','').trim();
+    const message = `頻道 ${chNum} 已經重生`;
+    
+    // 更新至 Firebase 中心的語音警報設施，這會觸發全房報讀
+    update(ref(db, `rooms/${currentRoomId}`), {
+      voiceAlert: {
+        message: message,
+        ts: Date.now(),
+        sender: userName
+      }
+    });
+  };
+
 
   const formatTime = (ms) => {
     const totalSec = Math.floor(ms / 1000);
@@ -857,9 +907,9 @@ function App() {
   };
 
   const bossRooms = useMemo(() => {
-    if (!rooms) return [];
-    return Object.values(rooms).filter(r => r && r.bossId === selectedBossId);
-  }, [rooms, selectedBossId]);
+    if (!roomSummaries) return [];
+    return Object.values(roomSummaries).filter(r => r && r.bossId === selectedBossId);
+  }, [roomSummaries, selectedBossId]);
 
   const renderContent = () => {
     if (authChecking) return <div className="loading-screen">連線中...</div>;
@@ -1047,13 +1097,9 @@ function App() {
                   <div key={room.id} className="list-row">
                     <div className="col-ch">{room.id}</div>
                     <div className="col-boss">{room.conductor}</div>
-                    <div className="col-timer">{Object.keys(room.members || {}).length}/4</div>
+                    <div className="col-timer">{room.onlineCount || 1}/4</div>
                     <div className="col-status">{formatTime(now - room.createdAt)}</div>
-                    <div className="col-window">
-                      {Object.keys(room.members || {}).length === 0 ? (
-                        <span className="delete-countdown">無成員 (清理中: {formatTime(ROOM_AUTO_DELETE_MS - (now - room.emptySince))})</span>
-                      ) : "熱烈打王中..."}
-                    </div>
+                    <div className="col-window">熱烈打王中...</div>
                     <div className="col-actions">
                       <button className="row-kill-btn" onClick={() => { setCurrentRoomId(room.id); setView('join'); setJoinNameInput(userName); }}>加入房間</button>
                     </div>
@@ -1100,159 +1146,172 @@ function App() {
         const records = currentRoom.records || {};
         const sessionDurationHrs = sessionStartTime ? (Date.now() - sessionStartTime) / (1000 * 60 * 60) : 0;
         const efficiency = sessionDurationHrs > 0 ? (sessionKills / sessionDurationHrs).toFixed(1) : '0.0';
-        const wildExplorers = Object.entries(currentRoom.wildBossExplore || {}).filter(([,v]) => v).map(([k]) => k);
 
         return (
-          <div className={`room-container-v16 boss-theme-${currentRoom.bossId} fade-in`}>
-            {/* 左側欄 */}
-            <aside className="v16-sidebar">
-              <div className="my-identity">
-                <label>您的身分：</label>
-                <div className="identity-val">
-                  <span className="badge-role">{isConductor ? '幸運車長' : '晏客成員'}</span>
-                  <span className="badge-name">{userName}</span>
+          <div className={`room-container-v25 boss-theme-${currentRoom.bossId} fade-in`}>
+            {/* --- V9.0 SIDEBAR: 4 MODULES --- */}
+            <aside className="v25-sidebar">
+              {/* Box 1: Identity */}
+              <div className="hud-card active-segment">
+                <span className="hud-label">您的身分 :</span>
+                <div className="v7-identity">
+                  <span className="v9-role-badge">{isConductor ? '幸運車長' : '車內成員'}</span>
+                  <span className="v7-name">{userName}</span>
                 </div>
               </div>
 
-              <div className="member-list">
-                <h3 style={{marginBottom:'12px', color:'var(--gold)', fontSize:'0.85rem'}}>車內成員 {members.length}/4</h3>
-                {members.map(m => (
-                  <div key={m} className="member-item">
-                    <div className="member-info">
-                      <span>🚗</span>
-                      <span>{m}</span>
-                      {m === currentRoom.conductor && <span className="badge-role" style={{fontSize:'0.65rem'}}>車長</span>}
+              {/* Box 2: Members */}
+              <div className="hud-card">
+                <span className="hud-label">車內成員 {members.length}/4</span>
+                <div className="v9-members-list">
+                  {members.map(m => (
+                    <div key={m} className={`v9-member-item ${m === userName ? 'is-me' : ''}`}>
+                      <span className="member-icon">🚗</span>
+                      <span className="member-name">{m}</span>
+                      {m === currentRoom.conductor && <span className="conductor-dot">●</span>}
                     </div>
-                    {isConductor && m !== userName && (
-                      <div className="member-actions">
-                        <button className="remove-btn-mini" onClick={() => removeMember(m)}>踢除</button>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
 
-              <div className="boss-info-panel">
-                <h3 style={{marginBottom:'12px', color:'var(--gold)', fontSize:'0.85rem'}}>BOSS 資訊</h3>
-                <div style={{fontSize:'1.1rem', fontWeight:'800', color:'var(--accent)', marginBottom:'6px'}}>{currentBoss.name}</div>
-                <div style={{fontSize:'0.85rem', color:'var(--text-secondary)'}}>重生時間: <strong style={{color:'#fff'}}>{currentBoss.time} 分鐘</strong></div>
-                <div style={{fontSize:'0.85rem', color:'var(--text-secondary)'}}>地區: {currentBoss.area}</div>
+              {/* Box 3: Boss Information */}
+              <div className="hud-card">
+                <span className="hud-label">BOSS 資訊</span>
+                <div style={{fontSize:'0.85rem', lineHeight:'1.8', color:'#ccc'}}>
+                  <div>{currentBoss.name}</div>
+                  <div>重生時間: {currentBoss.time} 分鐘</div>
+                  <div>地區: 開發者地圖</div>
+                </div>
               </div>
 
-              <div className="kill-report-panel">
-                <h3>📊 擊殺報告 (TODAY)</h3>
-                <div className="report-content">
-                  <div className="report-group-title">房內總累計 (OVERALL)</div>
-                  <div className="report-item">
-                    <span className="label">房號 / BOSS:</span>
-                    <span className="val highlight">{currentRoomId} - {currentBoss.name}</span>
-                  </div>
-                  <div className="report-item total-kills-row">
-                    <span className="label">總擊殺次數:</span>
-                    <span className="val highlight count-box">{currentRoom.totalKills || 0} 次</span>
-                  </div>
-                  <div className="report-item">
-                    <span className="label">總共航程:</span>
-                    <span className="val">{formatTime(now - currentRoom.createdAt)}</span>
-                  </div>
-                  <div className="report-divider" />
-                  <div className="report-group-title guest-title">您的隨車里程 (YOUR SESSION)</div>
-                  <div className="report-personal-grid">
-                    <div className="personal-stat-card">
-                      <span className="p-label">已隨車</span>
-                      <span className="p-val">{formatTime(now - (sessionStartTime || now))}</span>
-                    </div>
-                    <div className="personal-stat-card">
-                      <span className="p-label">共擊殺</span>
-                      <span className="p-val">{sessionKills}<small>次</small></span>
-                    </div>
-                    <div className="personal-stat-card">
-                      <span className="p-label">時薪效率</span>
-                      <span className="p-val">{efficiency}<small>隻/hr</small></span>
-                    </div>
-                  </div>
-                  <div style={{fontSize:'0.8rem', color:'var(--text-secondary)', marginTop:'8px'}}>
-                    <div style={{marginBottom:'4px', color:'#888'}}>目前成員:</div>
-                    <div>{members.join('  ')}</div>
+              {/* Box 4: Kill Report (Deep Analysis) */}
+              <div className="hud-card">
+                <span className="hud-label">📊 擊殺報告 (TODAY)</span>
+                
+                <div className="stats-section-v9">
+                  <span className="stats-sub-label">房內總累計 (OVERALL)</span>
+                  <div className="stats-row">房號 / BOSS: <span style={{fontSize:'0.75rem'}}>{currentRoomId} - {currentBoss.name}</span></div>
+                  <div className="stats-row">總擊殺次數: <b>{currentRoom.totalKills || 0} 次</b></div>
+                  <div className="stats-row">總共航程: <span>{formatTime(now - currentRoom.createdAt)}</span></div>
+                </div>
+
+                <div className="stats-section-v9">
+                  <span className="stats-sub-label">您的隨車里程 (YOUR SESSION)</span>
+                  <div className="stats-grid-v9">
+                    <div className="stat-box-v9"><b>{formatTime(Date.now() - (sessionStartTime || Date.now()))}</b><span>已隨車</span></div>
+                    <div className="stat-box-v9"><b>{sessionKills} 次</b><span>共獲取</span></div>
+                    <div className="stat-box-v9"><b>{efficiency}</b><span>時點效率</span></div>
                   </div>
                 </div>
-                <button className="export-btn" onClick={exportReport}>🖼️ 匯出擊殺戰報 (PNG)</button>
-                <button className="love-btn" onClick={() => setShowInheritanceModal(true)}>
-                  <span>❤️</span> 把愛傳下去 (繼承給他房)
-                </button>
+
+                <div style={{marginTop:'20px', display:'flex', flexDirection:'column', gap:'10px'}}>
+                  <button className="v9-btn bg-yellow" style={{width:'100%'}} onClick={exportReport}>🖼️ 匯出擊殺戰報 (PNG)</button>
+                  <button className="v9-btn bg-pink" style={{width:'100%'}} onClick={() => setShowInheritanceModal(true)}>把愛傳下去 (繼承給他房)</button>
+                </div>
               </div>
             </aside>
 
-            {/* 右側主區 */}
-            <main className="v16-main">
-              {wildExplorers.length > 0 && (
-                <div className="wild-boss-broadcast">
-                  <span className="broadcast-icon">🍖</span>
-                  <span className="broadcast-text">
-                    <span className="explorers">{wildExplorers.join('、')}</span> 餓了去打野王！
-                  </span>
-                </div>
-              )}
-
-              <div className="room-header">
-                <div className="room-info">
-                  <h2 style={{color:'var(--gold)', fontSize:'1.6rem'}}>房號: <strong>{currentRoomId}</strong></h2>
-                  <div className="room-password" style={{marginTop:'8px'}}>
-                    <span style={{fontSize:'0.75rem', color:'var(--text-secondary)'}}>房間密碼:</span>
-                    <div className="password-controls">
-                      <span className="password-large">{currentRoom.password || '無'}</span>
-                      <button className="copy-btn-mini" onClick={() => navigator.clipboard.writeText(currentRoom.password || '').then(() => alert('已複製！'))}>複製</button>
-                    </div>
+            {/* --- MAIN AREA: V9.0 HEADER & TABLE --- */}
+            <main className="v25-main">
+              <header className="room-top-bar">
+                <div className="v9-room-info">
+                  <h2>房號: {currentRoomId}</h2>
+                  <span>房間密碼:</span>
+                  <div className="v9-pwd-area">
+                    <div className="v9-pwd-box">{currentRoom.password}</div>
+                    <button className="btn-v9-copy" onClick={() => {
+                      navigator.clipboard.writeText(currentRoom.password || '');
+                      alert('密碼已複製！');
+                    }}>複製</button>
                   </div>
                 </div>
-                <div className="header-actions">
-                  <button className="voice-config-btn" onClick={() => setShowVoiceSettings(true)}>⚙️ 語音設定</button>
-                  <button className="share-btn" onClick={() => navigator.clipboard.writeText(window.location.href).then(() => alert('連結已複製！'))}>分享房間連結</button>
-                  <button className="leave-btn" onClick={() => setShowLeaveModal(true)}>下車離開 (返回大廳)</button>
-                  <button className={`explore-toggle-btn ${currentRoom.wildBossExplore?.[userName] ? 'active' : ''}`} onClick={toggleWildBossExplore}>
-                    {currentRoom.wildBossExplore?.[userName] ? '❌ 取消打野' : '🍖 餓了去打野'}
+
+                <div className="v9-control-group">
+                  <button className="btn-v9-grey" onClick={() => setShowVoiceSettings(true)}>⚙️ 語音設定</button>
+                  <button className="btn-v9-yellow" onClick={() => {
+                    navigator.clipboard.writeText(window.location.href);
+                    alert('連結已複製！');
+                  }}>分享房間連結</button>
+                  <button className="btn-v9-red" onClick={() => setShowLeaveModal(true)}>下車離開 (返回大廳)</button>
+                  <button className="btn-v9-orange" onClick={toggleWildBossExplore}>
+                    {currentRoom.wildBossExplore?.[userName] ? '🍖 取消打野' : '🍖 餓了去打野'}
                   </button>
                 </div>
-              </div>
+              </header>
 
-
-
-              <section className="v16-input-section">
-                <input type="text" value={inputChannel} onChange={e => setInputChannel(e.target.value)} placeholder="輸入頻道 (例: 5)" onKeyPress={e => e.key === 'Enter' && addRecord()} className="v16-ch-input" />
-                <button onClick={() => addRecord()} className="v16-btn-kill">已擊殺開始計時</button>
-              </section>
-
-              <section className="v16-table-section">
-                <div className="v16-table-container">
-                  <div className="v16-table-header">
-                    <span>頻道</span><span>野王名稱</span><span>倒數計時</span><span>目前狀態</span><span>回報者</span><span>頻道操作</span>
-                  </div>
-                  {Object.keys(records).length === 0 ? (
-                    <div className="v16-empty">目前沒有紀錄，請輸入頻道開始。</div>
-                  ) : (
-                    Object.keys(records).sort((a,b) => records[a].lastKill - records[b].lastKill).map(ch => {
-                      const remaining = currentBoss.time - (now - records[ch].lastKill) / 60000;
-                      const isReady = remaining <= 0;
-                      return (
-                        <div key={ch} className={`v16-table-row ${isReady ? 'row-ready' : ''}`}>
-                          <span className="v16-col-ch">{ch}</span>
-                          <span className="v16-col-bossname">{currentBoss.name}</span>
-                          <span className="v16-col-timer">{isReady ? 'READY' : formatTime(remaining * 60000)}</span>
-                          <span className="v16-col-status">
-                            <span className={isReady ? 'badge-ready' : 'badge-wait'}>{isReady ? 'READY' : '重生中'}</span>
-                          </span>
-                          <span className="v16-col-reporter">{records[ch].reporter}</span>
-                          <span className="v16-col-actions">
-                            <button onClick={() => handleStationed(ch)}>佔位</button>
-                            <button className="v16-kill-btn" onClick={() => addRecord(ch)}>擊殺</button>
-                            <button className="v16-del-btn" onClick={() => removeRecord(ch)}>刪除</button>
-                          </span>
-                        </div>
-                      );
-                    })
-                  )}
+              <div className="main-glass-panel">
+                <div className="kill-input-v25">
+                  <input 
+                    type="text" 
+                    className="v25-input" 
+                    placeholder="輸入頻道 (例: 5)" 
+                    value={inputChannel}
+                    onChange={e => setInputChannel(e.target.value)}
+                    onKeyPress={e => e.key === 'Enter' && addRecord()}
+                  />
+                  <button className="btn-v9-report" onClick={() => addRecord()}>已擊殺開始計時</button>
                 </div>
-              </section>
+
+                  <div className="v25-table">
+                    <div id="kill-report-card" className="v25-table-container">
+                      <div className="v25-table-header">
+                        <span>頻道</span><span>野王名稱</span><span>倒數計時</span><span>目前狀態</span><span>回報者</span><span style={{textAlign:'right'}}>頻道操作</span>
+                      </div>
+
+                      {Object.keys(records).length === 0 ? (
+                        <div style={{textAlign:'center', padding:'80px', color:'#444', fontStyle:'italic'}}>等待車員回報戰況...</div>
+                      ) : (
+                        Object.keys(records).sort((a,b) => records[a].lastKill - records[b].lastKill).map(ch => {
+                          const remaining = currentBoss.time - (now - records[ch].lastKill) / 60000;
+                          const isReady = remaining <= 0;
+                          const occupant = records[ch].occupant || '';
+                          
+                          return (
+                            <div key={ch} className="v25-row">
+                              {/* 1. 頻道與佔位 */}
+                              <div className="v4-ch-group">
+                                <span className="v5-ch-id">CH {ch.replace('CH','').trim()}</span>
+                                {occupant && <span className="v9-occupant-tag">📍 {occupant}</span>}
+                              </div>
+
+                              {/* 2. 野王名稱 */}
+                              <div className="v5-boss-name">{currentBoss.name}</div>
+
+                              {/* 3. 倒數計時 */}
+                              <div className={`v5-timer ${isReady ? 'ready' : ''}`}>
+                                {isReady ? 'READY' : formatTime(remaining * 60000)}
+                              </div>
+
+                              {/* 4. 目前狀態 */}
+                              <div>
+                                <span className={`v5-status-badge ${isReady ? 'v5-status-ready' : 'v5-status-waiting'}`}>
+                                  {isReady ? '已重生' : '重生中'}
+                                </span>
+                              </div>
+
+                              {/* 5. 回報者 */}
+                              <div className="v9-reporter-chip">
+                                👤 {records[ch].reporter}
+                              </div>
+
+                              {/* 6. 頻道操作 */}
+                              <div className="v5-btn-set">
+                                <button className="v9-btn bg-purple" onClick={() => handleStationed(ch)}>已佔位</button>
+                                {!isReady ? (
+                                  <button className="v9-btn bg-yellow" onClick={() => handleRespawned(ch)}>已重生</button>
+                                ) : (
+                                  <button className="v9-btn bg-pink" onClick={() => addRecord(ch)}>已擊殺</button>
+                                )}
+                                <button className="v9-btn bg-blue" onClick={() => broadcastStatus(ch)}>🔊 廣播</button>
+                                <button className="v9-btn bg-red" onClick={() => removeRecord(ch)}>刪除</button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+              </div>
             </main>
           </div>
         );
