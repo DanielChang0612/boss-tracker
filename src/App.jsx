@@ -1,1061 +1,351 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from './firebase';
-import { ref, onValue, set, update, remove, onDisconnect } from 'firebase/database';
+import { ref, onValue, set, update, remove, onDisconnect, get, off, increment } from 'firebase/database';
+import { signInWithPopup, signOut, onAuthStateChanged, GoogleAuthProvider } from 'firebase/auth';
+import { auth } from './firebase';
 import html2canvas from 'html2canvas';
+import './membership.css';
 
-// BOSS 定義
+// BOSS 定義 (v2.1 擴展版)
 const BOSSES = {
   croco: { name: "沼澤巨鱷", time: 105, area: "維多利亞島", color: "#2e7d32" },
   doll: { name: "仙人娃娃", time: 178, area: "桃花仙境", color: "#f48fb1" },
   bear: { name: "肯得熊", time: 128, area: "桃花仙境", color: "#795548" },
-  mushroom: { name: "蘑菇王", time: 240, area: "維多利亞島", color: "#d32f2f" },
-  deetloi: { name: "迪特和洛伊", time: 165, area: "納希沙漠", color: "#ffb300" },
-  chimera: { name: "奇美拉", time: 135, area: "納希沙漠", color: "#7b1fa2" },
-  guard: { name: "自動警備系統", time: 173, area: "納希沙漠", color: "#455a64" },
-  twins: { name: "紅藍雙怪", time: 135, area: "納希沙漠", color: "#1976d2" },
-  test: { name: "測試王", time: 0.25, area: "開發者地圖", color: "#607d8b" }
+  cat: { name: "喵怪仙人", time: 247, area: "桃花仙境", color: "#9c27b0" },
+  deer: { name: "艾利傑", time: 120, area: "天空之城", color: "#0288d1" },
+  snaky: { name: "雪毛怪人", time: 153, area: "冰原雪域", color: "#b3e5fc" },
+  rich: { name: "胖老朽", time: 144, area: "瑪迦提亞城", color: "#fbc02d" },
+  chimera: { name: "奇美拉", time: 153, area: "瑪迦提亞城", color: "#607d8b" },
+  leviathan: { name: "利維坦", time: 216, area: "神木村", color: "#3f51b5" },
+  dragon: { name: "九層龍", time: 216, area: "神木村", color: "#8d6e63" },
+  dodo: { name: "多多", time: 135, area: "時間神殿", color: "#673ab7" },
+  lily: { name: "莉利里諾斯", time: 135, area: "時間神殿", color: "#e91e63" },
+  lyca: { name: "萊伊卡", time: 135, area: "時間神殿", color: "#f44336" }
 };
 
-const ROOM_AUTO_DELETE_MS = 2 * 60 * 60 * 1000; // 2 小時
+// 100 階勳銜系統
+const TIERS = [
+  { name: "初心者", start: 0, step: 10, icon: "🌱", hue: 120 },
+  { name: "冒險家", start: 100, step: 20, icon: "🧭", hue: 200 },
+  { name: "精銳成員", start: 300, step: 40, icon: "⚔️", hue: 180 },
+  { name: "資深勇者", start: 700, step: 60, icon: "🛡️", hue: 210 },
+  { name: "公會將軍", start: 1300, step: 100, icon: "🛡️", hue: 45 },
+  { name: "超凡精銳", start: 2300, step: 200, icon: "🔥", hue: 15 },
+  { name: "榮耀騎士", start: 4300, step: 300, icon: "🥈", hue: 210 },
+  { name: "聖域護衛", start: 7300, step: 400, icon: "🥇", hue: 45 },
+  { name: "楓葉之子", start: 11300, step: 600, icon: "🍁", hue: 340 },
+  { name: "虛空至尊", start: 17300, step: 1000, icon: "🌌", hue: 280 }
+];
+
+const calculateUserRank = (totalKills = 0) => {
+  let tierIndex = TIERS.findIndex((t, idx) => {
+    const nextTier = TIERS[idx + 1];
+    return totalKills >= t.start && (!nextTier || totalKills < nextTier.start);
+  });
+  if (tierIndex === -1) tierIndex = TIERS.length - 1;
+  const tier = TIERS[tierIndex];
+  const innerProgress = totalKills - tier.start;
+  const subRank = Math.min(10, Math.floor(innerProgress / tier.step) + 1);
+  const subRankLabel = "★".repeat(subRank);
+  return { title: `[${tier.name}] ${subRankLabel}`, color: `hsl(${tier.hue}, 70%, 65%)`, badge: tier.icon };
+};
+
+// 持續時間格式化 (HH:mm:ss)
+const formatDuration = (ms) => {
+  if (!ms || ms < 0) return "00:00:00";
+  const sec = Math.floor(ms / 1000);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+};
 
 function App() {
-  const [rooms, setRooms] = useState(() => {
-    try {
-      const saved = localStorage.getItem('artale_guild_rooms');
-      return (saved && saved !== 'null') ? JSON.parse(saved) : {};
-    } catch { return {}; }
-  });
+  const [rooms, setRooms] = useState({});
+  const [roomSummaries, setRoomSummaries] = useState({});
   const [userName, setUserName] = useState(localStorage.getItem('artale_user_name') || '');
-  const [currentRoomId, setCurrentRoomId] = useState(window.location.hash.slice(1) || new URLSearchParams(window.location.search).get('room') || null);
-  const [view, setView] = useState(currentRoomId ? 'join' : 'lobby');
-
-  // UI 輔助狀態
-  const [selectedBossId, setSelectedBossId] = useState('deetloi');
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showLeaveModal, setShowLeaveModal] = useState(false);
-  const [newRoomConductor, setNewRoomConductor] = useState('');
-  const [passwordInput, setPasswordInput] = useState('');
-  const [joinNameInput, setJoinNameInput] = useState('');
-  const [inputChannel, setInputChannel] = useState('');
-  const [now, setNow] = useState(Date.now());
-  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
-  const [showInheritanceModal, setShowInheritanceModal] = useState(false);
-  const [availableVoices, setAvailableVoices] = useState([]);
-  const [voiceSettings, setVoiceSettings] = useState(() => {
-    const saved = localStorage.getItem('pikapi_voice_settings');
-    return saved ? JSON.parse(saved) : { voiceURI: '', rate: 1, pitch: 1 };
+  const [lobbyBossFilter, setLobbyBossFilter] = useState('croco'); 
+  const [currentRoomId, setCurrentRoomId] = useState(() => {
+    return window.location.hash.slice(1) || new URLSearchParams(window.location.search).get('room') || localStorage.getItem('pikapi_room_id') || null;
   });
+  const [view, setView] = useState('lobby'); 
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [syncSpin, setSyncSpin] = useState(false);
+  const [lastSyncTs, setLastSyncTs] = useState(null);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [now, setNow] = useState(Date.now());
 
-  // v1.6.2: 修復同步延遲導致的 Race Condition (誤判下車)
-  const userHasSeenSelfInRoom = useRef(false);
-
-  // --- 關鍵導出資料 (需在 Hook 之前宣告以供 Dependency Array 使用) ---
-  const currentRoom = (currentRoomId && rooms && rooms[currentRoomId]) ? rooms[currentRoomId] : null;
-  const currentBoss = (currentRoom && currentRoom.bossId && BOSSES[currentRoom.bossId])
-    ? BOSSES[currentRoom.bossId]
-    : BOSSES[selectedBossId] || Object.values(BOSSES)[0];
-
-  useEffect(() => {
-    localStorage.setItem('pikapi_voice_settings', JSON.stringify(voiceSettings));
-  }, [voiceSettings]);
-
-  useEffect(() => {
-    const updateVoices = () => {
-      const voices = window.speechSynthesis.getVoices();
-      setAvailableVoices(voices.filter(v => v.lang.includes('zh') || v.lang.includes('en')));
-    };
-    updateVoices();
-    window.speechSynthesis.onvoiceschanged = updateVoices;
-  }, []);
-
-  // 1. 監聽 Firebase 雲端資料 (取代 LocalStorage 同步)
-  useEffect(() => {
-    const roomsRef = ref(db, 'rooms');
-    return onValue(roomsRef, (snapshot) => {
-      const data = snapshot.val();
-      setRooms(data || {});
-
-      // v1.6.0: 如果目前在房間內，但房間在雲端被刪除了（代表繼承完成或解散）
-      if (currentRoomId && view === 'room' && (!data || !data[currentRoomId])) {
-        setView('lobby');
-        setCurrentRoomId(null);
-        window.history.pushState({}, '', window.location.pathname);
-      }
-    });
-  }, [currentRoomId, view]);
-
-  useEffect(() => {
-    localStorage.setItem('artale_user_name', userName);
-  }, [userName]);
-
-  // 監聽 URL Hash (加入房間連結) -> 只有在大廳時才自動進入加入頁面，避免重複觸發
-  useEffect(() => {
-    const hashId = window.location.hash.slice(1);
-    if (hashId && rooms[hashId] && view === 'lobby') {
-      setCurrentRoomId(hashId);
-      setView('join');
-    }
-  }, [rooms, view]);
-
-
-  // 當 View 切換時清空輸入 (使用者回饋: 確保新開分頁或切換時為空)
-  useEffect(() => {
-    if (view === 'lobby') {
-      setPasswordInput('');
-      setJoinNameInput('');
-    }
-    if (showCreateModal) {
-      setNewRoomConductor('');
-    }
-  }, [view, showCreateModal]);
-
-  // 強制下車同步邏輯 (當成員被踢除時，即時跳轉回大廳)
-  useEffect(() => {
-    if (currentRoomId && rooms && rooms[currentRoomId] && view === 'room' && userName) {
-      const room = rooms[currentRoomId];
-      const rawMembers = room.members || [];
-      const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
-      
-      const isInRoom = members.includes(userName);
-
-      if (isInRoom) {
-        // 使用者確實已出現在雲端名單中，標記為已上車
-        userHasSeenSelfInRoom.current = true;
-      } else if (userHasSeenSelfInRoom.current) {
-        // 使用者先前已上車，但現在名單中沒人了 -> 代表被踢除或房間發生異動
-        alert("【系統提醒】您已被請下車，將跳轉回大廳。");
-        userHasSeenSelfInRoom.current = false;
-        setCurrentRoomId(null);
-        setView('lobby');
-        window.history.pushState({}, '', window.location.pathname);
-      }
-    } else if (view === 'lobby') {
-      // 回到大廳時重置狀態
-      userHasSeenSelfInRoom.current = false;
-    }
-  }, [rooms, currentRoomId, userName, view]);
-
-  // 計時器
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // 語音播放邏輯 (v1.3.1: 套用個人設定)
-  const lastAlertTs = React.useRef(Date.now());
+  const refreshLobbyData = async () => {
+    setSyncSpin(true);
+    try {
+      const snap = await get(ref(db, 'roomSummaries'));
+      const data = snap.exists() ? snap.val() : {};
+      setRoomSummaries(data);
+      setLastSyncTs(Date.now());
+    } catch (err) { console.error(err); }
+    finally { setTimeout(() => setSyncSpin(false), 500); }
+  };
+
   useEffect(() => {
-    if (!currentRoomId || !rooms[currentRoomId] || view !== 'room') return;
-    const alert = rooms[currentRoomId].voiceAlert;
-    if (alert && alert.ts > lastAlertTs.current) {
-      lastAlertTs.current = alert.ts;
-      const utterance = new SpeechSynthesisUtterance(alert.message);
-      
-      // 套用個人化聲音與語速
-      const selectedVoice = availableVoices.find(v => v.voiceURI === voiceSettings.voiceURI);
-      if (selectedVoice) utterance.voice = selectedVoice;
-      utterance.rate = voiceSettings.rate;
-      utterance.pitch = voiceSettings.pitch;
-      utterance.lang = 'zh-TW';
-      
-      window.speechSynthesis.speak(utterance);
-    }
-  }, [rooms, currentRoomId, view, voiceSettings, availableVoices]);
-
-  // 生命週期管理：自動清理無人房間 (由前端定期觸發雲端刪除)
-  useEffect(() => {
-    const cleanup = () => {
-      Object.keys(rooms || {}).forEach(id => {
-        const room = rooms[id];
-        const rawMembers = room.members || {};
-        const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
-        
-        // 如果房間沒人但沒設置 emptySince (例如斷線造成)，在此補上
-        if (members.length === 0 && !room.emptySince) {
-          update(ref(db, `rooms/${id}`), { emptySince: Date.now() });
-        }
-
-        if (room.emptySince && (Date.now() - room.emptySince > ROOM_AUTO_DELETE_MS)) {
-          remove(ref(db, `rooms/${id}`));
-        }
-      });
-    };
-    const interval = setInterval(cleanup, 60000);
-    return () => clearInterval(interval);
-  }, [rooms]);
-
-  // 斷線自動離開偵測 (onDisconnect)
-  useEffect(() => {
-    if (currentRoomId && userName && view === 'room') {
-      const memberRef = ref(db, `rooms/${currentRoomId}/members/${userName}`);
-      onDisconnect(memberRef).remove();
-    }
-  }, [currentRoomId, userName, view]);
-
-  // 車長自動繼承邏輯：若現任車長不在名單中，由第一位位成員自動繼承
-  useEffect(() => {
-    if (currentRoomId && view === 'room' && currentRoom) {
-      const rawMembers = currentRoom.members || {};
-      const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
-      const isConductorInRoom = members.includes(currentRoom.conductor);
-
-      if (members.length > 0 && !isConductorInRoom) {
-        // 自動指派第一位成員為新車長
-        update(ref(db, `rooms/${currentRoomId}`), {
-          conductor: members[0]
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        onValue(ref(db, `users/${user.uid}`), (s) => {
+          const p = s.val() || {};
+          setCurrentUser({ ...user, profile: p });
+          if (p.isAdmin) setIsAdmin(true);
         });
-      }
-    }
-  }, [currentRoomId, view, currentRoom]);
+      } else { setCurrentUser(null); setIsAdmin(false); }
+    });
+    return unsub;
+  }, []);
 
-  // --- 邏輯函式 ---
+  useEffect(() => {
+    if (!currentRoomId || view !== 'room') return;
+    const unsub = onValue(ref(db, `rooms/${currentRoomId}`), (s) => {
+      const d = s.val();
+      if (!d) { backToLobby(); return; }
+      setRooms(prev => ({ ...prev, [currentRoomId]: d }));
+    });
+    const heartRef = ref(db, `rooms/${currentRoomId}/members/${currentUser.uid}/isOnline`);
+    set(heartRef, true);
+    onDisconnect(heartRef).set(false);
+    return () => unsub();
+  }, [currentRoomId, view]);
+
+  useEffect(() => { if (view === 'lobby') refreshLobbyData(); }, [view]);
+
+  const handleLogin = () => signInWithPopup(auth, new GoogleAuthProvider());
+  const handleLogout = () => { signOut(auth); backToLobby(); };
 
   const createRoom = () => {
-    if (!newRoomConductor.trim()) return alert("請輸入車長名稱");
     const id = Math.random().toString(36).substr(2, 6).toUpperCase();
+    const conductor = userName || currentUser.displayName || "冒險家";
     const newRoom = {
-      id,
-      bossId: selectedBossId,
-      password: Math.random().toString(36).substr(2, 4), // 隨機預設密碼
-      conductor: newRoomConductor.trim(),
-      members: { [newRoomConductor.trim()]: { joinedAt: Date.now(), startKills: 0 } },
-      records: {},
-      totalKills: 0,
-      createdAt: Date.now(),
-      emptySince: null
+      id, bossId: lobbyBossFilter, password: Math.random().toString(36).substr(2, 4),
+      conductor, conductorUid: currentUser.uid,
+      members: { [currentUser.uid]: { name: conductor, photoURL: currentUser.photoURL || '🐶', isOnline: true, joinedAt: Date.now() } },
+      records: {}, totalKills: 0, createdAt: Date.now()
     };
-    const roomRef = ref(db, `rooms/${id}`);
-    set(roomRef, newRoom);
-
-    setUserName(newRoomConductor.trim());
-    setCurrentRoomId(id);
-    userHasSeenSelfInRoom.current = false; // 重置追蹤
-    setView('room');
-    setShowCreateModal(false);
-    window.history.pushState({}, '', `#${id}`);
+    const summary = { id, bossId: lobbyBossFilter, conductor, totalKills: 0, onlineCount: 1, createdAt: Date.now(), isValuable: false };
+    const updates = {};
+    updates[`rooms/${id}`] = newRoom;
+    updates[`roomSummaries/${id}`] = summary;
+    update(ref(db), updates).then(() => { setCurrentRoomId(id); setView('room'); window.history.pushState({}, '', `#${id}`); });
   };
 
   const joinRoom = () => {
-    const room = rooms[currentRoomId];
-    if (!room) { alert("房間已不存在"); setView('lobby'); return; }
-    if (!joinNameInput.trim()) return alert("請輸入您的名稱");
-
-    if (room.password !== passwordInput) {
-      alert("密碼錯誤，請重新輸入！");
-      return;
-    }
-
-    const rawMembersJoin = room.members || {};
-    const membersJoin = Array.isArray(rawMembersJoin) ? rawMembersJoin : Object.keys(rawMembersJoin);
-    if (membersJoin.length >= 4 && !membersJoin.includes(joinNameInput.trim())) {
-      alert("我還沒上車阿！(房間已滿 4 人)");
-      return;
-    }
-
-    const roomRef = ref(db, `rooms/${currentRoomId}`);
-    const rawMembers = room.members || {};
-    const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
-    const isEmptyRoom = members.length === 0;
-
-    // 將成員以姓名為 key 寫入，支援斷線移除與個人里程統計
-    update(ref(db, `rooms/${currentRoomId}/members`), {
-      [joinNameInput.trim()]: { joinedAt: Date.now(), startKills: room.totalKills || 0 }
-    });
-    
-    update(roomRef, {
-      conductor: isEmptyRoom ? joinNameInput.trim() : room.conductor,
-      emptySince: null
-    });
-
-    setUserName(joinNameInput.trim());
-    userHasSeenSelfInRoom.current = false; // 重置追蹤
-    setView('room');
-    window.history.pushState({}, '', `#${currentRoomId}`);
-    setPasswordInput(''); // 清空
-    setJoinNameInput(''); // 清空
-  };
-
-  const manualSync = () => {
-    const saved = JSON.parse(localStorage.getItem('artale_guild_rooms')) || {};
-    setRooms(saved);
-    alert("資料已同步更新！");
-  };
-
-  const backToLobby = () => {
-    window.history.pushState({}, '', window.location.pathname); // 清除 Hash，避免 Effect 再次跳轉
-    setCurrentRoomId(null);
-    userHasSeenSelfInRoom.current = false; // 重置追蹤
-    setView('lobby');
-  };
-
-  const handleLeaveClick = () => {
-    setShowLeaveModal(true);
-  };
-
-  const confirmLeave = () => {
-    const room = rooms[currentRoomId];
-    if (room) {
-      const rawMembers = room.members || {};
-      const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers).filter(m => m !== userName);
-      const isConductor = room.conductor === userName;
-
-      // 移除特定成員
-      remove(ref(db, `rooms/${currentRoomId}/members/${userName}`));
-
-      update(ref(db, `rooms/${currentRoomId}`), {
-        conductor: isConductor ? (members[0] || room.conductor) : room.conductor,
-        emptySince: members.length === 0 ? Date.now() : null
-      });
-    }
-    setShowLeaveModal(false);
-    setCurrentRoomId(null);
-    setView('lobby');
-    window.history.pushState({}, '', window.location.pathname);
-  };
-
-  const removeMember = (targetName) => {
-    const room = rooms[currentRoomId];
-    if (room.conductor !== userName) return;
-    remove(ref(db, `rooms/${currentRoomId}/members/${targetName}`));
-  };
-
-  const transferConductor = (targetName) => {
-    if (!currentRoomId || !userName) return;
-    const room = rooms[currentRoomId];
-    if (room.conductor !== userName) return;
-    update(ref(db, `rooms/${currentRoomId}`), {
-      conductor: targetName
-    });
-    alert(`💡 已將車長權限轉移給：${targetName}`);
-  };
-
-  const toggleWildBossExplore = () => {
-    if (!currentRoomId || !userName) return;
-    const room = rooms[currentRoomId];
-    const explores = room.wildBossExplore || {};
-    const isActive = explores[userName];
-    
-    // 如果目前是關閉狀態，要開啟；如果是開啟狀態，要關閉
-    update(ref(db, `rooms/${currentRoomId}/wildBossExplore`), {
-      [userName]: isActive ? null : true
-    });
-
-    // v1.5.2: 新增語音通報功能
-    if (!isActive) {
-      const speakText = `${userName} 已經去打野了`;
-      update(ref(db, `rooms/${currentRoomId}`), {
-        voiceAlert: {
-          message: speakText,
-          ts: Date.now(),
-          sender: userName
-        }
-      });
-    }
-  };
-
-  const handleStationed = (chKey) => {
-    if (!currentRoomId || !userName) return;
-    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
-      stationed: userName 
+    get(ref(db, `rooms/${currentRoomId}`)).then((s) => {
+      const r = s.val();
+      if (!r || r.password !== passwordInput) return alert("密碼錯誤");
+      const updates = {};
+      updates[`rooms/${currentRoomId}/members/${currentUser.uid}`] = { name: userName || currentUser.displayName, photoURL: currentUser.photoURL || '🐶', isOnline: true, joinedAt: Date.now() };
+      updates[`roomSummaries/${currentRoomId}/onlineCount`] = increment(1);
+      update(ref(db), updates).then(() => { setView('room'); window.history.pushState({}, '', `#${currentRoomId}`); });
     });
   };
 
-  const addRecord = (manualChKey) => {
-    const chKey = manualChKey || `CH ${inputChannel.trim()}`;
-    if (!manualChKey && !inputChannel.trim()) return;
-    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
-      lastKill: Date.now(),
-      reporter: userName,
-      stationed: null // 清除佔位
-    });
-    
-    // 全域擊殺統計累加
-    const room = rooms[currentRoomId];
-    update(ref(db, `rooms/${currentRoomId}`), { 
-      totalKills: (room.totalKills || 0) + 1,
-      wildBossExplore: null // 清除打野狀態
-    });
-
-    if (!manualChKey) setInputChannel('');
+  const backToLobby = () => { setView('lobby'); setCurrentRoomId(null); window.history.pushState({}, '', window.location.pathname); };
+  const addRecord = (ch) => {
+    const r = rooms[currentRoomId];
+    const nK = (r.totalKills || 0) + 1;
+    const updates = {};
+    updates[`rooms/${currentRoomId}/records/${ch}`] = { ts: Date.now(), reporter: userName || "冒險家", photoURL: currentUser.photoURL || '🐶', ready: false };
+    updates[`rooms/${currentRoomId}/totalKills`] = nK;
+    updates[`roomSummaries/${currentRoomId}/totalKills`] = nK;
+    updates[`roomSummaries/${currentRoomId}/isValuable`] = true;
+    update(ref(db), updates);
   };
+  const markAsReady = (ch) => update(ref(db, `rooms/${currentRoomId}/records/${ch}`), { ready: true, readyAt: Date.now() });
 
-  const removeRecord = (chKey) => {
-    remove(ref(db, `rooms/${currentRoomId}/records/${chKey}`));
-  };
+  const currentRoom = rooms[currentRoomId];
+  const rank = calculateUserRank(currentUser?.profile?.totalKills || 0);
 
-  const markAsReady = (chKey) => {
-    if (!currentRoomId) return;
-    const readyTime = Date.now() - (currentBoss.time * 60 * 1000);
-    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
-      lastKill: readyTime,
-      reporter: userName || '系統校定',
-      stationed: null // 清除佔位
-    });
-    // 同時清除打野狀態
-    update(ref(db, `rooms/${currentRoomId}`), { 
-      wildBossExplore: null 
-    });
-  };
+  return (
+    <div className="app-wrapper">
+      <header className="global-header">
+        <div className="header-logo" onClick={backToLobby}>⚡ PiKaPi <span className="boss-highlight">BOSS Tracker</span></div>
+        <div className="header-actions">
+          <div className="sub-nav-btns">
+            <button className={`admin-tab ${view === 'lobby' ? 'active' : ''}`} onClick={() => setView('lobby')}>🛡️ 指揮部</button>
+            <button className={`admin-tab ${view === 'profile' ? 'active' : ''}`} onClick={() => setView('profile')}>🎖️ 勳章圖鑑</button>
+            {isAdmin && <button className="admin-entry-btn">🏆 戰績排行</button>}
+          </div>
+          <div className="sync-area">
+            <button className={`sync-btn ${syncSpin ? 'spinning' : ''}`} onClick={refreshLobbyData}>🔄 更新</button>
+          </div>
+          {currentUser && (
+            <div className="user-profile-mini">
+              <span className="v16-badge-name">Hi, {userName || currentUser.displayName}</span>
+              <img src={currentUser.photoURL || '🐶'} className="header-avatar" onClick={() => setView('profile')} alt="avatar" />
+              <button className="logout-btn" onClick={handleLogout}>登出</button>
+            </div>
+          )}
+        </div>
+      </header>
 
-  const sendInheritanceRequest = (targetId) => {
-    if (!currentRoomId || !userName) return;
-    const targetRef = ref(db, `rooms/${targetId}/inheritanceRequest`);
-    set(targetRef, {
-      fromRoomId: currentRoomId,
-      fromConductor: userName,
-      at: Date.now(),
-      status: 'pending'
-    });
-    setShowInheritanceModal(false);
-    alert("❤️ 愛的小禮物已發送！請等待對方車長接受。");
-  };
+      <div className="main-content-area">
+        {view === 'lobby' && (
+          <div className="lobby-view fade-in" style={{ width: '95%', maxWidth: '1400px' }}>
+            {/* Build v2.1 Banner */}
+            <div className="glass-panel" style={{ padding: '35px', borderRadius: '24px', textAlign: 'center', marginBottom: '30px', border: '1.5px solid var(--gold-glow)' }}>
+              <span className="box-label" style={{ fontSize: '0.9rem', opacity: 0.7 }}>Build v2.1 - 指揮中心已上線</span>
+              <h1 className="boss-highlight" style={{ fontSize: '3rem', margin: '15px 0', textShadow: '0 0 25px rgba(255, 215, 0, 0.5)' }}>PiKaPi 公會和諧打王趣</h1>
+              <p style={{ letterSpacing: '2px', opacity: 0.8 }}>專業野王紀錄管理系統</p>
+            </div>
 
-  const handleInheritanceResponse = (accept) => {
-    if (!currentRoomId || !currentRoom.inheritanceRequest) return;
-    const request = currentRoom.inheritanceRequest;
-    const fromRoomId = request.fromRoomId;
-
-    if (accept) {
-      const fromRoom = rooms[fromRoomId];
-      if (!fromRoom) {
-        alert("❌ 哎呀，對方的愛消失了（房間已解散）。");
-        update(ref(db, `rooms/${currentRoomId}/inheritanceRequest`), null);
-        return;
-      }
-
-      // 執行合併邏輯
-      const myRecords = currentRoom.records || {};
-      const fromRecords = fromRoom.records || {};
-      const mergedRecords = { ...myRecords };
-
-      Object.keys(fromRecords).forEach(ch => {
-        if (!mergedRecords[ch] || fromRecords[ch].lastKill > mergedRecords[ch].lastKill) {
-          mergedRecords[ch] = fromRecords[ch];
-        }
-      });
-
-      // 更新目前房間
-      update(ref(db, `rooms/${currentRoomId}`), {
-        records: mergedRecords,
-        inheritanceRequest: null
-      });
-
-      // 銷毀來源房間
-      remove(ref(db, `rooms/${fromRoomId}`));
-      
-      // 語音通報
-      const speakText = `已接收來自 ${request.fromConductor} 的愛，紀錄更新完成！`;
-      update(ref(db, `rooms/${currentRoomId}`), {
-        voiceAlert: {
-          message: speakText,
-          ts: Date.now(),
-          sender: '系統'
-        }
-      });
-      alert("❤️ 您已成功接收了對方的愛！");
-    } else {
-      // 拒絕
-      update(ref(db, `rooms/${currentRoomId}`), {
-        inheritanceRequest: null
-      });
-      alert("💔 您優雅地拒絕了對方的愛。");
-    }
-  };
-
-  // --- 渲染輔助 ---
-
-
-  const formatTime = (ms) => {
-    const totalSec = Math.floor(ms / 1000);
-    const h = Math.floor(totalSec / 3600);
-    const m = Math.floor((totalSec % 3600) / 60);
-    const s = totalSec % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const formatDateTime = (ts) => {
-    const d = new Date(ts);
-    return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
-  };
-
-  const triggerVoiceAlert = (chKey) => {
-    const speakText = chKey.replace('CH', '頻道') + ' 已經重生';
-    update(ref(db, `rooms/${currentRoomId}`), {
-      voiceAlert: {
-        message: speakText,
-        ts: Date.now(),
-        sender: userName
-      }
-    });
-  };
-
-  const exportReport = () => {
-    const element = document.getElementById('kill-report-card');
-    if (!element) return;
-    
-    // 提醒使用者正在處理
-    const btn = document.querySelector('.export-btn');
-    const originalText = btn.innerText;
-    btn.innerText = "生成圖片中...";
-    btn.disabled = true;
-
-    html2canvas(element, {
-      backgroundColor: '#1a1a1a', // 確保背景是深色
-      scale: 2, // 提高解析度
-      useCORS: true
-    }).then(canvas => {
-      const link = document.createElement('a');
-      link.download = `PiKaPi_${currentBoss.name}_戰報_${new Date().toLocaleDateString()}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-      
-      btn.innerText = originalText;
-      btn.disabled = false;
-      alert("✅ 戰報匯出成功！");
-    }).catch(err => {
-      console.error(err);
-      btn.innerText = originalText;
-      btn.disabled = false;
-      alert("❌ 匯出失敗，請重試");
-    });
-  };
-
-  // Lobby 房間列表過濾
-  const bossRooms = useMemo(() => {
-    if (!rooms) return [];
-    return Object.values(rooms).filter(r => r && r.bossId === selectedBossId);
-  }, [rooms, selectedBossId]);
-
-  // --- 渲染組件 ---
-
-  // --- 主渲染邏輯 ---
-  const renderContent = () => {
-    try {
-      if (view === 'lobby') {
-        return (
-          <div className="lobby-container">
-            {/* ... 大廳內容 ... */}
-            <header className="lobby-header">
-              <div className="version-tag">Build v1.6.0</div>
-              <h1>PiKaPi 公會和諧打王趣</h1>
-              <p>專業野王紀錄管理系統</p>
-            </header>
-
-            <section className="lobby-controls">
-              <div className="boss-selector">
-                <label>選擇野王：</label>
-                <select value={selectedBossId} onChange={(e) => setSelectedBossId(e.target.value)}>
-                  {Object.entries(BOSSES).map(([id, boss]) => (
-                    <option key={id} value={id}>{boss.name} ({boss.area})</option>
-                  ))}
+            {/* Boss Filter Bar */}
+            <div className="glass-panel" style={{ padding: '20px 30px', borderRadius: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                <span className="v16-badge-name">選擇野王：</span>
+                <select className="v16-ch-input" value={lobbyBossFilter} onChange={(e) => setLobbyBossFilter(e.target.value)} style={{ width: '250px', padding: '10px' }}>
+                  {Object.entries(BOSSES).map(([id, b]) => <option key={id} value={id}>{b.name}</option>)}
                 </select>
               </div>
-              <button className="create-btn" onClick={() => setShowCreateModal(true)}>創建打王房間</button>
-            </section>
-
-            <section className="room-list">
-              <h3>房間列表 - {BOSSES[selectedBossId].name}</h3>
-              <div className="list-container">
-                <div className="list-header lobby-table-header">
-                  <span>房號</span>
-                  <span>車長</span>
-                  <span>人數</span>
-                  <span>持續時間</span>
-                  <span>狀態</span>
-                  <span>操作</span>
-                </div>
-                {bossRooms.length === 0 && <div className="empty-msg">目前沒有房間，快去當車長吧！</div>}
-                {bossRooms.map(room => (
-                  <div key={room.id} className="list-row">
-                    <div className="col-ch">{room.id}</div>
-                    <div className="col-boss">{room.conductor}</div>
-                    <div className="col-timer">
-                      {(() => {
-                        const m = room.members || [];
-                        const arr = Array.isArray(m) ? m : Object.keys(m);
-                        return arr.length;
-                      })()}/4
-                    </div>
-                    <div className="col-status">{formatTime(now - room.createdAt)}</div>
-                    <div className="col-window">
-                      {(() => {
-                        const m = room.members || [];
-                        const arr = Array.isArray(m) ? m : Object.keys(m);
-                        return arr.length === 0;
-                      })() ? (
-                        <span className="delete-countdown">無成員 (清理倒數: {formatTime(ROOM_AUTO_DELETE_MS - (now - room.emptySince))})</span>
-                      ) : "熱烈打王中..."}
-                    </div>
-                    <div className="col-actions">
-                      {(() => {
-                        const m = room.members || [];
-                        const arr = Array.isArray(m) ? m : Object.keys(m);
-                        return arr.length >= 4;
-                      })() ? (
-                        <div className="full-room-status">
-                          <span>四人打寶中 (滿員)</span>
-                        </div>
-                      ) : (
-                        <button className="row-kill-btn" onClick={() => { setCurrentRoomId(room.id); setView('join'); }}>加入房間</button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            {showCreateModal && (
-              <div className="modal-overlay">
-                <div className="modal">
-                  <h2>創建房間 - {BOSSES[selectedBossId].name}</h2>
-                  <input
-                    type="text"
-                    placeholder="輸入您的車長名稱 (例如: 幸運車長橘子)"
-                    value={newRoomConductor}
-                    onChange={(e) => setNewRoomConductor(e.target.value)}
-                  />
-                  <div className="modal-btns">
-                    <button onClick={createRoom}>確定創建</button>
-                    <button onClick={() => setShowCreateModal(false)} className="cancel-btn">取消</button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      }
-
-      if (view === 'join') {
-        const room = rooms[currentRoomId];
-        if (!room) return <div className="error-view">房間已不存在 <button onClick={() => setView('lobby')}>回大廳</button></div>;
-        const rawMembers = room.members || [];
-        const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
-        const isEmptyRoom = members.length === 0;
-        return (
-          <div className="join-container">
-            <div className="modal">
-              <h2>{isEmptyRoom ? '重啟房間' : '加入房間'} {currentRoomId}</h2>
-              <p>Boss: {BOSSES[room.bossId].name}</p>
-              {isEmptyRoom && <p className="gold-text">※ 目前房間沒人，請輸入原房間密碼以重啟並繼承成為新車長。</p>}
-              <input
-                type="password"
-                placeholder="輸入房間密碼"
-                value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-              />
-              <input
-                type="text"
-                placeholder="您的名稱"
-                value={joinNameInput}
-                onChange={(e) => setJoinNameInput(e.target.value)}
-              />
-              <div className="modal-btns">
-                <button onClick={joinRoom}>{isEmptyRoom ? '重啟公會專車' : '上車'}</button>
-                <button onClick={backToLobby} className="cancel-btn">回大廳</button>
-              </div>
-            </div>
-          </div>
-        );
-      }
-
-      if (view === 'room' && currentRoom) {
-        const isConductor = currentRoom.conductor === userName;
-        const rawMembers = currentRoom.members || [];
-        const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
-        const records = (currentRoom && currentRoom.records) ? currentRoom.records : {};
-        const keys = Object.keys(records);
-
-        return (
-          <div className={`room-container boss-theme-${currentRoom.bossId}`} style={{ borderColor: currentBoss.color }}>
-            <div className="room-sidebar">
-              <div className="my-identity">
-                <label>您的身分：</label>
-                <div className="identity-val">
-                  <span className="badge-role">{isConductor ? '幸運車長' : '乘客'}</span>
-                  <span className="badge-name">{userName}</span>
-                </div>
-              </div>
-              <div className="member-list">
-                <h3>車內成員 {members.length}/4</h3>
-                {members.map(m => (
-                  <div key={m} className="member-item">
-                    <div className="member-info">
-                      <span>{m === currentRoom.conductor ? '🚗' : '👤'} {m}</span>
-                    </div>
-                    <div className="member-actions">
-                      {isConductor && m !== userName && (
-                        <>
-                          <button className="transfer-btn-mini" onClick={() => transferConductor(m)} title="轉移車長權限">轉移</button>
-                          <button className="remove-btn-mini" onClick={() => removeMember(m)}>×</button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="boss-info-panel">
-                <h3>BOSS 資訊</h3>
-                <p className="boss-title">{currentBoss.name}</p>
-                <p>重生時間: {currentBoss.time} 分鐘</p>
-                <p>地區: {currentBoss.area}</p>
-              </div>
-
-              {/* 擊殺報告 (v1.5.2: 整合個人里程) */}
-              {(() => {
-                const myData = (currentRoom.members && typeof currentRoom.members[userName] === 'object') 
-                  ? currentRoom.members[userName] 
-                  : { joinedAt: currentRoom.createdAt, startKills: 0 };
-                  
-                const mySessionKills = (currentRoom.totalKills || 0) - (myData.startKills || 0);
-                const mySessionDurationMs = now - (myData.joinedAt || currentRoom.createdAt);
-                const mySessionHours = mySessionDurationMs / 3600000;
-                const myEfficiency = (mySessionHours > 0.01) ? (mySessionKills / mySessionHours).toFixed(1) : "---";
-
-                return (
-                  <div className="kill-report-panel" id="kill-report-card">
-                    <h3>📊 擊殺報告 (TODAY)</h3>
-                    <div className="report-content">
-                      <div className="report-group-title">房內總累計 (Overall)</div>
-                      <div className="report-item">
-                        <span className="label">房號 / BOSS:</span>
-                        <span className="val">{currentRoomId} - {currentBoss.name}</span>
-                      </div>
-                      <div className="report-item total-kills-row">
-                        <span className="label">總擊殺次數:</span>
-                        <span className="val count-box">{currentRoom.totalKills || 0} 次</span>
-                      </div>
-                      <div className="report-item">
-                        <span className="label">總共航程:</span>
-                        <span className="val">{formatTime(now - currentRoom.createdAt)}</span>
-                      </div>
-
-                      <div className="report-divider"></div>
-                      
-                      <div className="report-group-title guest-title">您的隨車里程 (Your Session)</div>
-                      <div className="report-personal-grid">
-                        <div className="personal-stat-card">
-                          <span className="p-label">已隨車</span>
-                          <span className="p-val">{formatTime(mySessionDurationMs)}</span>
-                        </div>
-                        <div className="personal-stat-card">
-                          <span className="p-label">共獵數</span>
-                          <span className="p-val">{mySessionKills} <small>次</small></span>
-                        </div>
-                        <div className="personal-stat-card">
-                          <span className="p-label">時薪效率</span>
-                          <span className="p-val">{myEfficiency} <small>隻/hr</small></span>
-                        </div>
-                      </div>
-
-                      <div className="report-divider"></div>
-
-                      <div className="report-item killers-section">
-                        <span className="label">目前成員:</span>
-                        <div className="killers-list">
-                          {members.join(', ')}
-                        </div>
-                      </div>
-                    </div>
-                    <button className="export-btn" onClick={exportReport}>🖼 匯出擊殺戰報 (PNG)</button>
-
-                    {/* v1.6.0: 把愛傳下去 */}
-                    {isConductor && (
-                      <button className="love-btn" onClick={() => setShowInheritanceModal(true)}>
-                        ❤️ 把愛傳下去 (繼承給他房)
-                      </button>
-                    )}
-                  </div>
-                );
-              })()}
+              <button className="btn-primary" style={{ padding: '15px 35px' }} onClick={createRoom}>創建打王房間</button>
             </div>
 
-            <div className="room-main">
-                {(() => {
-                  const explores = currentRoom.wildBossExplore || {};
-                  const explorerNames = Object.keys(explores).filter(k => explores[k]);
-                  if (explorerNames.length === 0) return null;
+            {/* Room List Table */}
+            <h3 className="drawer-label" style={{ marginBottom: '15px' }}>房間列表 - {BOSSES[lobbyBossFilter]?.name}</h3>
+            <div className="admin-table-wrapper" style={{ background: 'rgba(0,0,0,0.3)' }}>
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>房號</th>
+                    <th>車長</th>
+                    <th>人數</th>
+                    <th>持續時間</th>
+                    <th>狀態</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.values(roomSummaries).filter(r => r.bossId === lobbyBossFilter).map(r => (
+                    <tr key={r.id}>
+                      <td style={{ color: 'var(--gold)', fontWeight: 950 }}>{r.id}</td>
+                      <td>{r.conductor}</td>
+                      <td>{r.onlineCount}/4</td>
+                      <td>{formatDuration(now - r.createdAt)}</td>
+                      <td><span className="battle-active-tag">熱烈打王中...</span></td>
+                      <td><button className="btn-primary" style={{ padding: '6px 18px', fontSize: '0.8rem', background: 'var(--gold)' }} onClick={() => { setCurrentRoomId(r.id); setView('join'); }}>加入房間</button></td>
+                    </tr>
+                  ))}
+                  {Object.values(roomSummaries).filter(r => r.bossId === lobbyBossFilter).length === 0 && (
+                    <tr><td colSpan="6" style={{ textAlign: 'center', padding: '50px', opacity: 0.5 }}>目前沒有該 BOSS 的王團</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {view === 'join' && (
+          <div className="join-container fade-in">
+             <div className="glass-panel" style={{ padding: '40px', borderRadius: '24px', textAlign: 'center' }}>
+                <h2>進入房間 #{currentRoomId}</h2>
+                <input type="password" placeholder="4 位數密碼" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} style={{ margin: '20px 0', fontSize: '1.2rem', textAlign: 'center' }} />
+                <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
+                  <button className="btn-primary" onClick={joinRoom}>確認進入</button>
+                  <button className="btn-secondary-glass" onClick={backToLobby}>返回大廳</button>
+                </div>
+             </div>
+          </div>
+        )}
+
+        {view === 'profile' && (
+          <div className="profile-card glass-panel fade-in">
+            <div className="avatar-wrapper" style={{ boxShadow: `0 0 25px ${rank.color}` }}>
+              <div className="profile-avatar-large avatar-emoji-container">{currentUser?.photoURL || '🐶'}</div>
+              <div className="rank-badge-overlay">{rank.badge}</div>
+            </div>
+            <div className="profile-info">
+              <h2 style={{ color: rank.color }}>{userName || currentUser?.displayName}</h2>
+              <span className="profile-rank" style={{ color: rank.color }}>{rank.title}</span>
+            </div>
+            <div className="profile-stats-summary">
+              <div className="stat-main"><span className="label">總擊殺紀錄</span><div className="value">{currentUser?.profile?.totalKills || 0} <small>隻</small></div></div>
+              <div className="stat-main"><span className="label">總站崗時長</span><div className="value">{(currentUser?.profile?.totalHours || 0).toFixed(1)} <small>h</small></div></div>
+            </div>
+            <div className="mastery-section">
+              <h3 className="drawer-label">👾 野王專精數據 (Boss Mastery)</h3>
+              <div className="mastery-grid">
+                {Object.entries(BOSSES).map(([id, b]) => {
+                  const m = currentUser?.profile?.mastery?.[id] || { kills: 0, hours: 0 };
                   return (
-                    <div className="wild-boss-broadcast">
-                      <div className="broadcast-icon">📢</div>
-                      <div className="broadcast-text">
-                        <span className="explorers">{explorerNames.join(', ')}</span> 正在探索野王中... (各頻道的野王都還沒出生)
-                      </div>
+                    <div key={id} className="mastery-card">
+                      <div className="m-boss-icon" style={{ backgroundColor: b.color }}>{b.name[0]}</div>
+                      <div className="m-info"><div className="m-name">{b.name}</div><div className="m-stats">擊殺: {m.kills} | 時長: {m.hours.toFixed(1)}h</div></div>
                     </div>
                   );
-                })()}
+                })}
+              </div>
+            </div>
+            <button className="back-lobby-btn" onClick={() => setView('lobby')}>回大廳</button>
+          </div>
+        )}
 
-                <header className="room-header">
-                <div className="room-info">
-                  <h2>房號: <span className="gold-text">{currentRoomId}</span></h2>
-                  <div className="room-password">
-                    <label>房間密碼:</label>
-                    <div className="password-controls">
-                      {isConductor ? (
-                        <input
-                          className="inline-input password-large"
-                          value={currentRoom.password}
-                          onChange={(e) => {
-                            const newPass = e.target.value;
-                            update(ref(db, `rooms/${currentRoomId}`), { password: newPass });
-                          }}
-                        />
-                      ) : <span className="password-large">{currentRoom.password}</span>}
-                      <button className="copy-btn-mini" onClick={() => {
-                        navigator.clipboard.writeText(currentRoom.password);
-                        alert("密碼已複製！");
-                      }}>複製</button>
-                    </div>
-                  </div>
+        {view === 'room' && currentRoom && (
+          <div className="room-container-v16 fade-in">
+            <aside className="v16-sidebar">
+              <div className="v16-box identity-box">
+                <span className="box-label">在線身份</span>
+                <div className="v16-badge-row">
+                  <span className="v16-badge-gold" style={{ background: rank.color }}>{rank.badge}</span>
+                  <span className="v16-badge-name">{userName || currentUser?.displayName}</span>
                 </div>
-                <div className="header-actions">
-                  <button className="voice-config-btn" onClick={() => setShowVoiceSettings(!showVoiceSettings)}>⚙️ 語音設定</button>
-                  <button className="share-btn" onClick={() => {
-                    navigator.clipboard.writeText(window.location.href);
-                    alert("已複製房間連結！");
-                  }}>分享房間連結</button>
-                  <button className="leave-btn" onClick={handleLeaveClick}>下車離開 (返回大廳)</button>
-                  <button 
-                    className={`explore-toggle-btn ${currentRoom.wildBossExplore?.[userName] ? 'active' : ''}`} 
-                    onClick={toggleWildBossExplore}
-                  >
-                    {currentRoom.wildBossExplore?.[userName] ? '❌ 取消打野狀態' : '🍖 餓了去打野'}
-                  </button>
+              </div>
+              <div className="v16-box stats-box">
+                <span className="box-title">目前房間資訊</span>
+                <div className="v16-boss-info"><span className="v16-boss-name">{BOSSES[currentRoom.bossId]?.name}</span><span>擊殺: ⚔️ {currentRoom.totalKills}</span></div>
+                <hr className="v16-divider" />
+                <div className="v16-member-list">
+                  {Object.values(currentRoom.members || {}).map(m => (
+                    <div key={m.uid} className="v16-member-tag"><span>{m.photoURL} {m.name}</span><span className={`status-dot ${m.isOnline ? 'online' : 'offline'}`}></span></div>
+                  ))}
                 </div>
-              </header>
-
-              {showVoiceSettings && (
-                <div className="voice-settings-overlay">
-                  <div className="voice-settings-card">
-                    <div className="card-header">
-                      <h3>⚙️ 個人化語音設定</h3>
-                      <button className="close-btn" onClick={() => setShowVoiceSettings(false)}>×</button>
-                    </div>
-                    <div className="settings-fields">
-                      <div className="field">
-                        <label>選擇語音庫</label>
-                        <select 
-                          value={voiceSettings.voiceURI} 
-                          onChange={(e) => setVoiceSettings({...voiceSettings, voiceURI: e.target.value})}
-                        >
-                          <option value="">(預設系統聲音)</option>
-                          {availableVoices.map(v => (
-                            <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="field">
-                        <label>語速 (Rate): {voiceSettings.rate}</label>
-                        <input 
-                          type="range" min="0.5" max="2" step="0.1" 
-                          value={voiceSettings.rate}
-                          onChange={(e) => setVoiceSettings({...voiceSettings, rate: parseFloat(e.target.value)})}
-                        />
-                      </div>
-                      <div className="field">
-                        <label>音調 (Pitch): {voiceSettings.pitch}</label>
-                        <input 
-                          type="range" min="0.5" max="2" step="0.1" 
-                          value={voiceSettings.pitch}
-                          onChange={(e) => setVoiceSettings({...voiceSettings, pitch: parseFloat(e.target.value)})}
-                        />
-                      </div>
-                    </div>
-                    <div className="card-hint">
-                      * 這些設定僅儲存在您的瀏覽器，不影響他人。
-                    </div>
-                  </div>
+              </div>
+              <button className="btn-leave-v1" style={{ marginTop: 'auto' }} onClick={leaveRoom}>離開房間</button>
+            </aside>
+            <main className="v16-main">
+              <div className="v16-header">
+                <div className="v16-room-id-group">
+                  <div className="v16-room-id">房間 ID <span className="v16-id-text">#{currentRoomId}</span></div>
+                  <div className="v16-pwd-row"><span className="v16-pwd-box">{currentRoom.password}</span></div>
                 </div>
-              )}
-
-              <section className="input-section">
-                <input
-                  type="text"
-                  placeholder="輸入頻道 (例: 5)"
-                  className="main-input"
-                  value={inputChannel}
-                  onChange={(e) => setInputChannel(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addRecord()}
-                />
-                <button onClick={() => addRecord()} className="add-btn">已擊殺開始計時</button>
-              </section>
-
-              <main className="list-container">
-                <div className="list-header">
-                  <span>頻道</span>
-                  <span>野王名稱</span>
-                  <span>倒數計時</span>
-                  <span>目前狀態</span>
-                  <span>回報者</span>
-                  <span>頻道操作</span>
-                </div>
-                {keys.length === 0 ? (
-                  <div className="empty-msg">目前沒有紀錄，請輸入頻道開始。</div>
-                ) : (
-                  keys.sort((a, b) => {
-                    const chA = records[a];
-                    const chB = records[b];
-                    const elapsedA = (now - chA.lastKill) / 60000;
-                    const elapsedB = (now - chB.lastKill) / 60000;
-                    const remainingA = currentBoss.time - elapsedA;
-                    const remainingB = currentBoss.time - elapsedB;
-                    const isReadyA = remainingA <= 0;
-                    const isReadyB = remainingB <= 0;
-
-                    if (isReadyA && !isReadyB) return -1;
-                    if (!isReadyA && isReadyB) return 1;
-                    // 皆為已重生或皆為重生中：依照剩餘時間排序 (越小排越上面)
-                    return remainingA - remainingB;
-                  }).map(chKey => {
-                    const chData = records[chKey];
-                    if (!chData) return null;
-                    const elapsed = (now - chData.lastKill) / 60000;
-                    const remaining = currentBoss.time - elapsed;
-                    const isReady = remaining <= 0;
+              </div>
+              <div className="v16-table-section">
+                <div className="v16-table-container">
+                  <div className="v16-table-header"><span>頻道</span><span>狀態</span><span>計時</span><span>回報者</span><span>操作</span></div>
+                  {Array.from({ length: 28 }, (_, i) => i + 1).map(ch => {
+                    const r = currentRoom.records?.[ch];
+                    const bTime = BOSSES[currentRoom.bossId]?.time;
+                    let rem = 0; if (r && !r.ready) rem = Math.max(0, bTime - Math.floor((now - r.ts) / 1000));
                     return (
-                      <div key={chKey} className={`list-row ${isReady ? 'row-ready' : ''}`}>
-                        <div className="col-ch">
-                          {chKey}
-                          {chData.stationed && (
-                            <div className="stationed-tag" title={`${chData.stationed} 前往頻道佔位`}>
-                              📍 {chData.stationed} 佔位
-                            </div>
-                          )}
-                        </div>
-                        <div className="col-boss">{currentBoss.name}</div>
-                        <div className="col-timer">{isReady ? "READY" : formatTime(remaining * 60000)}</div>
-                        <div className="col-status">
-                          <span className={`status-badge ${isReady ? 'status-ready' : 'status-respawning'}`}>
-                            {isReady ? '已重生' : '重生中'}
-                          </span>
-                        </div>
-                        <div className="col-reporter">
-                          <span className="reporter-badge">👤 {chData.reporter || '系統'}</span>
-                        </div>
-                        <div className="col-actions">
-                          <button className="stationed-btn" onClick={() => handleStationed(chKey)}>已佔位</button>
-                          {!isReady && (
-                            <button className="ready-override-btn" onClick={() => markAsReady(chKey)}>已重生</button>
-                          )}
-                          <button className="re-kill-btn" onClick={() => addRecord(chKey)}>已擊殺</button>
-                          <button className="broadcast-btn" onClick={() => triggerVoiceAlert(chKey)}>📢 廣播</button>
-                          <button className="row-remove-btn" onClick={() => removeRecord(chKey)}>刪除</button>
+                      <div key={ch} className="v16-table-row">
+                        <span className="v16-col-ch">CH {ch.toString().padStart(2, '0')}</span>
+                        <span className="v16-col-status">{r ? (r.ready ? "🟢 重生中" : (rem > 0 ? "🕒 重生中" : "🔥 可能重生")) : "---"}</span>
+                        <span className="v16-col-timer">{rem > 0 ? `${Math.floor(rem / 60)}:${(rem % 60).toString().padStart(2, '0')}` : "--:--"}</span>
+                        <span className="v16-col-reporter">{r ? `${r.photoURL} ${r.reporter}` : '---'}</span>
+                        <div className="v16-col-actions">
+                          <button className="v16-kill-btn" onClick={() => addRecord(ch)}>擊殺</button>
+                          <button className="v16-kill-btn" style={{ borderColor: '#aaa' }} onClick={() => markAsReady(ch)}>重生</button>
                         </div>
                       </div>
                     );
-                  })
-                )}
-              </main>
-            </div>
-          </div>
-        );
-      }
-
-    } catch (err) {
-      console.error("Render Error:", err);
-      return (
-        <div className="error-view">
-          <h2>系統發生錯誤</h2>
-          <pre style={{ textAlign: 'left', background: '#000', padding: '10px' }}>{err.stack}</pre>
-          <button onClick={() => { setView('lobby'); setCurrentRoomId(null); }}>返回大廳</button>
-        </div>
-      );
-    }
-  };
-
-  return (
-    <>
-      {renderContent()}
-
-      {/* 把愛傳下去 Modal (Sender) */}
-      {showInheritanceModal && (
-        <div className="modal-overlay inheritance-modal" onClick={() => setShowInheritanceModal(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2><span className="heart-icon">❤️</span> 把愛傳下去</h2>
-            <p className="desc">選擇一個同王的房間，將目前的頻道紀錄傳承給他們！</p>
-            <div className="love-list">
-              {bossRooms.filter(r => r.id !== currentRoomId).map(room => (
-                <div key={room.id} className="love-list-item">
-                  <div className="r-info">
-                    <div className="room-id">房號: {room.id}</div> 
-                    <div className="room-stats">
-                      車長: {room.conductor} | 成員: {Object.keys(room.members || {}).length}
-                    </div>
-                  </div>
-                  <button className="love-give-btn" onClick={() => sendInheritanceRequest(room.id)}>把愛給他</button>
+                  })}
                 </div>
-              ))}
-              {bossRooms.filter(r => r.id !== currentRoomId).length === 0 && (
-                <div className="empty-msg" style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
-                  大廳目前沒有其他房在打這隻王...
-                </div>
-              )}
-            </div>
-            <button className="love-cancel-btn" onClick={() => setShowInheritanceModal(false)}>先留著愛</button>
-          </div>
-        </div>
-      )}
-
-      {/* 接收愛的告白彈窗 (Receiver) */}
-      {(currentRoom?.conductor === userName && currentRoom?.inheritanceRequest?.status === 'pending') && (
-        <div className="incoming-love-overlay">
-          <div className="love-popup">
-            <div className="love-popup-inner">
-              <h2><span className="heart-icon">❤️</span> 愛的告白</h2>
-              <div className="love-message">
-                來自 <strong>房號 {currentRoom.inheritanceRequest.fromRoomId}</strong> 的車長
-                <span className="sender-highlight">{currentRoom.inheritanceRequest.fromConductor}</span>
-                想要把愛傳給你，是否接受他的愛？
               </div>
-              <div className="love-actions">
-                <button 
-                  className="accept-love" 
-                  onClick={(e) => { e.stopPropagation(); handleInheritanceResponse(true); }}
-                >接受他的愛 ❤️</button>
-                <button 
-                  className="decline-love" 
-                  onClick={(e) => { e.stopPropagation(); handleInheritanceResponse(false); }}
-                >殘忍拒絕 💔</button>
-              </div>
-            </div>
+            </main>
           </div>
-        </div>
-      )}
-
-      {showLeaveModal && currentRoom && (
-        <div className="modal-overlay">
-          <div className="modal info-modal">
-            <h2>【下車前資訊提醒】</h2>
-            <p>請確認是否記錄好相關資訊：</p>
-            <div className="info-item">
-              <label>您的名稱：</label>
-              <div className="info-val">{userName}</div>
-            </div>
-            <div className="info-item">
-              <label>房間密碼：</label>
-              <div className="info-val">
-                <span className="password-display">{currentRoom.password}</span>
-                <button className="copy-btn-mini" onClick={() => {
-                  navigator.clipboard.writeText(currentRoom.password);
-                  alert("密碼已複製！");
-                }}>複製</button>
-              </div>
-            </div>
-            {(() => {
-              const m = currentRoom.members || [];
-              const arr = Array.isArray(m) ? m : Object.keys(m);
-              return arr.length === 1;
-            })() && (
-                <div className="warning-box">
-                  ⚠️ 注意：您是最後一位成員，下車後該房間將成為<strong>無人房</strong>！下一位進入的玩家將繼承成為車長！
-                </div>
-              )}
-            <div className="modal-btns">
-              <button onClick={confirmLeave}>確認紀錄並下車</button>
-              <button onClick={() => setShowLeaveModal(false)} className="cancel-btn">取消</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+        )}
+      </div>
+    </div>
   );
 }
 
