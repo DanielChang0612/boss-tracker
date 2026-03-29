@@ -1,0 +1,1386 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { db, auth, googleProvider } from './firebase';
+import { ref, onValue, set, update, remove, onDisconnect, get, off } from 'firebase/database';
+import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
+import html2canvas from 'html2canvas';
+import './membership.css';
+
+// 6 åèç³»åç©é è¨­é¸é  (v4.8)
+const DEFAULT_ANIMALS = ['ð¶', 'ð±', 'ð¦', 'ð¼', 'ð¨', 'ð¯'];
+
+// BOSS å®ç¾©
+const BOSSES = {
+  croco: { name: "æ²¼æ¾¤å·¨é±·", time: 105, area: "ç¶­å¤å©äºå³¶", color: "#2e7d32" },
+  doll: { name: "ä»äººå¨å¨", time: 178, area: "æ¡è±ä»å¢", color: "#f48fb1" },
+  bear: { name: "è¯å¾ç", time: 128, area: "æ¡è±ä»å¢", color: "#795548" },
+  mushroom: { name: "èèç", time: 240, area: "ç¶­å¤å©äºå³¶", color: "#d32f2f" },
+  deetloi: { name: "è¿ªç¹åæ´ä¼", time: 165, area: "ç´å¸æ²æ¼ ", color: "#ffb300" },
+  chimera: { name: "å¥ç¾æ", time: 135, area: "ç´å¸æ²æ¼ ", color: "#7b1fa2" },
+  guard: { name: "èªåè­¦åç³»çµ±", time: 173, area: "ç´å¸æ²æ¼ ", color: "#455a64" },
+  twins: { name: "ç´èéæª", time: 135, area: "ç´å¸æ²æ¼ ", color: "#1976d2" },
+  test: { name: "æ¸¬è©¦ç", time: 0.25, area: "éç¼èå°å", color: "#607d8b" }
+};
+
+const ROOM_AUTO_DELETE_MS = 2 * 60 * 60 * 1000; // 2 å°æ
+const ADMIN_UID = 'Ib9T643jMNcTNjIAd3aHMuNPTBj2'; // ç®¡çå¡å°å±¬å®æ´ç UID
+
+// ç¨±èèç­ç´å®ç¾©
+const getRankInfo = (kills = 0, hours = 0) => {
+  if (kills >= 500) return { title: "ð æ¥ä¹è°·å®è­·ç¥", color: "#ff4081", badge: "ðï¸" };
+  if (kills >= 200) return { title: "âï¸ éçæ¶å²è", color: "#d4af37", badge: "âï¸" };
+  if (kills >= 100) return { title: "ð¡ï¸ é«ç´è¿è¡åµ", color: "#00e676", badge: "ð¡ï¸" };
+  if (kills >= 50) return { title: "ð å°æ¥­æéäºº", color: "#2196f3", badge: "ð" };
+  if (kills >= 10) return { title: "ð£ æçè¦ç¿ç", color: "#bbb", badge: "ð£" };
+  return { title: "ð± åéªæ°åµ", color: "#888", badge: "ð±" };
+};
+
+function App() {
+  const [rooms, setRooms] = useState({});
+  const [userName, setUserName] = useState(localStorage.getItem('artale_user_name') || '');
+  const [currentRoomId, setCurrentRoomId] = useState(window.location.hash.slice(1) || new URLSearchParams(window.location.search).get('room') || null);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authChecking, setAuthChecking] = useState(true);
+
+  const [view, setView] = useState('landing');
+
+  // UI è¼å©çæ
+  const [selectedBossId, setSelectedBossId] = useState('deetloi');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
+  const [newRoomConductor, setNewRoomConductor] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [joinNameInput, setJoinNameInput] = useState('');
+  const [inputChannel, setInputChannel] = useState('');
+  const [now, setNow] = useState(Date.now());
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+  const [showInheritanceModal, setShowInheritanceModal] = useState(false);
+  const [availableVoices, setAvailableVoices] = useState([]);
+  const [voiceSettings, setVoiceSettings] = useState(() => {
+    const saved = localStorage.getItem('pikapi_voice_settings');
+    return saved ? JSON.parse(saved) : { voiceURI: '', rate: 1, pitch: 1 };
+  });
+
+  // Admin å°å±¬çæ
+  const [allUsers, setAllUsers] = useState({});
+  const [adminTab, setAdminTab] = useState('rooms'); // 'rooms' | 'users'
+  const [adminUserSubTab, setAdminUserSubTab] = useState('stats'); // 'stats' | 'directory'
+  const [adminUserSearchTerm, setAdminUserSearchTerm] = useState(''); // æå°éæ¿¾
+  const [sessionStartTime, setSessionStartTime] = useState(null); // åäººç«å´è¨æå¨
+  const [sessionKills, setSessionKills] = useState(0); // æ¬æ¬¡é¨è»ç´¯è¨ææ®º (v1.6.2)
+  const [globalBroadcast, setGlobalBroadcast] = useState(null); // å¨åå¬åç¯é»
+  const [broadcastInput, setBroadcastInput] = useState(''); // ç®¡çå¡å»£æ­è¼¸å¥æ¡
+  const [adminMenu, setAdminMenu] = useState(null); // { rid, m }
+  const [showAvatarModal, setShowAvatarModal] = useState(false); // é è¨­é ­åå½çª
+  const [selectedEmoji, setSelectedEmoji] = useState(null); // é¸ä¸­ç Emoji
+  const avatarInputRef = useRef(null); // é±èçä¸å³è¼¸å¥æ¡
+
+  const userHasSeenSelfInRoom = useRef(false);
+
+  const currentRoom = (currentRoomId && rooms && rooms[currentRoomId]) ? rooms[currentRoomId] : null;
+  const currentBoss = (currentRoom && currentRoom.bossId && BOSSES[currentRoom.bossId])
+    ? BOSSES[currentRoom.bossId]
+    : BOSSES[selectedBossId] || Object.values(BOSSES)[0];
+
+  useEffect(() => {
+    localStorage.setItem('pikapi_voice_settings', JSON.stringify(voiceSettings));
+  }, [voiceSettings]);
+
+  useEffect(() => {
+    const updateVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      setAvailableVoices(voices.filter(v => v.lang.includes('zh') || v.lang.includes('en')));
+    };
+    updateVoices();
+    window.speechSynthesis.onvoiceschanged = updateVoices;
+  }, []);
+
+  useEffect(() => {
+    const roomsRef = ref(db, 'rooms');
+    return onValue(roomsRef, (snapshot) => {
+      const data = snapshot.val();
+      setRooms(data || {});
+
+      if (currentRoomId && view === 'room' && (!data || !data[currentRoomId])) {
+        setView('lobby');
+        setCurrentRoomId(null);
+        window.history.pushState({}, '', window.location.pathname);
+      }
+    });
+  }, [currentRoomId, view]);
+
+  // å¨å±é»æééé¸å® (v4.5)
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      // å¦æé»æçå°æ¹ä¸å±¬æ¼æå¡æ¨ç±¤ï¼åééé¸å®
+      if (!e.target.closest('.admin-member-tag')) {
+        setAdminMenu(null);
+      }
+    };
+    if (adminMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [adminMenu]);
+
+  useEffect(() => {
+    if (currentUser?.uid === ADMIN_UID) {
+      const usersRef = ref(db, 'users');
+      return onValue(usersRef, (snapshot) => {
+        setAllUsers(snapshot.val() || {});
+      });
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    const connectedRef = ref(db, '.info/connected');
+    const unsubscribe = onValue(connectedRef, (snap) => {
+      if (snap.val() === true && currentRoomId && userName && view === 'room') {
+        const memberRef = ref(db, `rooms/${currentRoomId}/members/${userName}`);
+        update(memberRef, { 
+          isOnline: true, 
+          lastSeen: Date.now() 
+        });
+      }
+    });
+    return () => unsubscribe();
+  }, [currentRoomId, userName, view]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const userRef = ref(db, `users/${user.uid}`);
+        const snapshot = await get(userRef);
+        let userData = snapshot.val();
+        
+        if (!userData) {
+          userData = {
+            uid: user.uid,
+            displayName: user.displayName || 'ç¡åè±é',
+            photoURL: user.photoURL,
+            totalKills: 0,
+            totalHours: 0,
+            status: user.uid === ADMIN_UID ? 'approved' : 'new', // ç®¡çå¡èªåæ ¸åï¼æ°æ¶çº new
+            createdAt: Date.now()
+          };
+          update(userRef, userData);
+        }
+        
+        setCurrentUser({ ...user, profile: userData });
+        setUserName(userData.displayName);
+        
+        // æ¬éå®è¡ (v4.9)
+        if (user.uid !== ADMIN_UID && userData.status !== 'approved') {
+          setView('landing');
+        } else if (view === 'landing') {
+          const hashId = window.location.hash.slice(1);
+          if (hashId && rooms[hashId]) {
+            setCurrentRoomId(hashId);
+            setJoinNameInput(userData.displayName);
+            setView('join');
+          } else {
+            setView('lobby');
+          }
+        }
+      } else {
+        // å¦æç»åºåæ­£å¨æ¿éå§ï¼åçµç®æé
+        if (currentUser && currentRoomId && sessionStartTime) {
+          const delta = (Date.now() - sessionStartTime) / (1000 * 60 * 60);
+          const userRef = ref(db, `users/${currentUser.uid}`);
+          get(userRef).then(snap => {
+            const data = snap.val() || {};
+            const bossId = rooms[currentRoomId]?.bossId || 'unknown';
+            update(userRef, {
+              totalHours: (data.totalHours || 0) + delta,
+              [`bossStats/${bossId}/hours`]: (data.bossStats?.[bossId]?.hours || 0) + delta
+            });
+          });
+        }
+        setCurrentUser(null);
+        setView('landing');
+        setCurrentRoomId(null);
+        setSessionStartTime(null);
+      }
+      setAuthChecking(false);
+    });
+    return () => unsubscribe();
+  }, [view, rooms, currentRoomId]); // Added session logic dependency
+
+  // å¨åå»£æ­ç£è½èèªé³å ±è®
+  useEffect(() => {
+    const broadcastRef = ref(db, 'globalBroadcast');
+    const unsubscribe = onValue(broadcastRef, (snap) => {
+      const data = snap.val();
+      if (data && data.ts > Date.now() - 30000) { // 30ç§å§çå¬åæé¡¯ç¤º
+        setGlobalBroadcast(data);
+        // èªé³å ±è® (TTS)
+        const speech = new SpeechSynthesisUtterance(data.message);
+        speech.lang = 'zh-TW';
+        speech.rate = 0.9;
+        window.speechSynthesis.speak(speech);
+
+        // 5ç§å¾èªåé±èæ©«å¹
+        setTimeout(() => setGlobalBroadcast(null), 8000);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // æª¢æ¥æ¯å¦è¢«è¸¢åºæ¿é
+  useEffect(() => {
+    if (currentRoomId && rooms[currentRoomId] && userName) {
+      const members = rooms[currentRoomId].members || {};
+      if (!members[userName]) {
+        // æ¨è¢«è¸¢åºäº
+        setCurrentRoomId(null);
+        setView('lobby');
+        setSessionStartTime(null);
+        alert("æ¨å·²è¢«ç®¡çå¡ç§»åºæ¿é");
+      }
+    }
+  }, [rooms, currentRoomId, userName]);
+
+  useEffect(() => {
+    if (view === 'lobby' && userName) {
+      localStorage.setItem('artale_user_name', userName);
+    }
+  }, [userName, view]);
+
+  useEffect(() => {
+    const hashId = window.location.hash.slice(1);
+    if (hashId && rooms[hashId] && view === 'lobby') {
+      setCurrentRoomId(hashId);
+      setJoinNameInput(userName);
+      setView('join');
+    }
+  }, [rooms, view, userName]);
+
+  useEffect(() => {
+    if (view === 'lobby') {
+      setPasswordInput('');
+      setJoinNameInput(userName);
+    }
+    if (showCreateModal) {
+      setNewRoomConductor(userName);
+    }
+  }, [view, showCreateModal, userName]);
+
+  useEffect(() => {
+    if (currentRoomId && rooms && rooms[currentRoomId] && view === 'room' && userName) {
+      const room = rooms[currentRoomId];
+      const rawMembers = room.members || {};
+      const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
+      
+      const isInRoom = members.includes(userName);
+
+      if (isInRoom) {
+        userHasSeenSelfInRoom.current = true;
+      } else if (userHasSeenSelfInRoom.current) {
+        const timer = setTimeout(() => {
+          get(ref(db, `rooms/${currentRoomId}/members/${userName}`)).then(snap => {
+            if (!snap.exists()) {
+              alert("ãç³»çµ±æéãæ¨å·²è¢«è«ä¸è»ï¼å°è·³è½åå¤§å»³ã");
+              userHasSeenSelfInRoom.current = false;
+              setCurrentRoomId(null);
+              setView('lobby');
+              window.history.pushState({}, '', window.location.pathname);
+            }
+          });
+        }, 2000);
+        return () => clearTimeout(timer);
+      }
+    } else if (view === 'lobby') {
+      userHasSeenSelfInRoom.current = false;
+    }
+  }, [rooms, currentRoomId, userName, view]);
+
+  // æ´æ°åäººé ­åéè¼¯ (v4.8)
+  const handleAvatarUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 500000) return alert("åçå¤ªå¤§å (é 500KB ä»¥å§)");
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64 = event.target.result;
+      updateProfileAvatar(base64);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const updateProfileAvatar = (newUrl) => {
+    if (!currentUser) return;
+    update(ref(db, `users/${currentUser.uid}`), { photoURL: newUrl });
+    setCurrentUser(prev => ({
+      ...prev,
+      photoURL: newUrl,
+      profile: { ...prev.profile, photoURL: newUrl }
+    }));
+    alert("é ­åæ´ææåï¼");
+  };
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const lastAlertTs = useRef(Date.now());
+  useEffect(() => {
+    if (!currentRoomId || !rooms[currentRoomId] || view !== 'room') return;
+    const alert = rooms[currentRoomId].voiceAlert;
+    if (alert && alert.ts > lastAlertTs.current) {
+      lastAlertTs.current = alert.ts;
+      const utterance = new SpeechSynthesisUtterance(alert.message);
+      const selectedVoice = availableVoices.find(v => v.voiceURI === voiceSettings.voiceURI);
+      if (selectedVoice) utterance.voice = selectedVoice;
+      utterance.rate = voiceSettings.rate;
+      utterance.pitch = voiceSettings.pitch;
+      utterance.lang = 'zh-TW';
+      window.speechSynthesis.speak(utterance);
+    }
+  }, [rooms, currentRoomId, view, voiceSettings, availableVoices]);
+
+  useEffect(() => {
+    const cleanup = () => {
+      Object.keys(rooms || {}).forEach(id => {
+        const room = rooms[id];
+        const rawMembers = room.members || {};
+        const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
+        
+        if (members.length === 0 && !room.emptySince) {
+          update(ref(db, `rooms/${id}`), { emptySince: Date.now() });
+        }
+
+        if (room.emptySince && (Date.now() - room.emptySince > ROOM_AUTO_DELETE_MS)) {
+          remove(ref(db, `rooms/${id}`));
+        }
+      });
+    };
+    const interval = setInterval(cleanup, 60000);
+    return () => clearInterval(interval);
+  }, [rooms]);
+
+  useEffect(() => {
+    if (currentRoomId && userName && view === 'room') {
+      const memberRef = ref(db, `rooms/${currentRoomId}/members/${userName}`);
+      update(memberRef, { 
+        isOnline: true, 
+        lastSeen: Date.now() 
+      });
+
+      const disconnectRef = onDisconnect(memberRef);
+      disconnectRef.update({ 
+        isOnline: false, 
+        lastSeen: Date.now() 
+      });
+      
+      return () => {
+        update(memberRef, { isOnline: false });
+        disconnectRef.cancel();
+      };
+    }
+  }, [currentRoomId, userName, view]);
+
+  useEffect(() => {
+    if (currentRoomId && view === 'room' && currentRoom) {
+      const rawMembers = currentRoom.members || {};
+      const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
+      const isConductorInRoom = members.includes(currentRoom.conductor);
+
+      if (members.length > 0 && !isConductorInRoom) {
+        update(ref(db, `rooms/${currentRoomId}`), {
+          conductor: members[0]
+        });
+      }
+    }
+  }, [currentRoomId, view, currentRoom]);
+
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error("ç»å¥å¤±æ", error);
+      alert("ç»å¥å¤±æï¼è«éè©¦ã");
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setView('landing');
+    } catch (error) {
+      console.error("ç»åºå¤±æ", error);
+    }
+  };
+
+  const updateProfileName = (newName) => {
+    if (!newName.trim()) return alert("è«è¼¸å¥æ±ç¨±");
+    if (!currentUser) return;
+    update(ref(db, `users/${currentUser.uid}`), { displayName: newName.trim() });
+    setUserName(newName.trim());
+    alert("æ±ç¨±å·²æ´æ°ï¼");
+  };
+
+  const createRoom = () => {
+    if (!newRoomConductor.trim()) return alert("è«è¼¸å¥è»é·åç¨±");
+    const id = Math.random().toString(36).substr(2, 6).toUpperCase();
+    const newRoom = {
+      id,
+      bossId: selectedBossId,
+      password: Math.random().toString(36).substr(2, 4),
+      conductor: newRoomConductor.trim(),
+      members: { [newRoomConductor.trim()]: { joinedAt: Date.now(), startKills: 0 } },
+      records: {},
+      totalKills: 0,
+      createdAt: Date.now(),
+      emptySince: null
+    };
+    set(ref(db, `rooms/${id}`), newRoom);
+    setUserName(newRoomConductor.trim());
+    setCurrentRoomId(id);
+    setView('room');
+    setSessionStartTime(Date.now()); // éå§è¨æ
+    setShowCreateModal(false);
+    window.history.pushState({}, '', `#${id}`);
+  };
+
+  const joinRoom = () => {
+    const room = rooms[currentRoomId];
+    if (!room) return alert("æ¿éå·²ä¸å­å¨");
+    if (!joinNameInput.trim()) return alert("è«è¼¸å¥æ¨çåç¨±");
+    if (room.password !== passwordInput) return alert("å¯ç¢¼é¯èª¤");
+
+    update(ref(db, `rooms/${currentRoomId}/members`), {
+      [joinNameInput.trim()]: { joinedAt: Date.now(), startKills: room.totalKills || 0 }
+    });
+    
+    setUserName(joinNameInput.trim());
+    setView('room');
+    setSessionStartTime(Date.now()); // éå§è¨æ
+    window.history.pushState({}, '', `#${currentRoomId}`);
+    setPasswordInput('');
+    setJoinNameInput('');
+  };
+
+  const backToLobby = () => {
+    window.history.pushState({}, '', window.location.pathname);
+    setCurrentRoomId(null);
+    setView('lobby');
+  };
+
+  const confirmLeave = () => {
+    const room = rooms[currentRoomId];
+    if (room && currentUser) {
+      // çµç®ç«å´æé
+      if (sessionStartTime) {
+        const delta = (Date.now() - sessionStartTime) / (1000 * 60 * 60); // å°æ
+        const userRef = ref(db, `users/${currentUser.uid}`);
+        get(userRef).then(snap => {
+          const data = snap.val() || {};
+          const bossId = room.bossId;
+          update(userRef, {
+            totalHours: (data.totalHours || 0) + delta,
+            [`bossStats/${bossId}/hours`]: (data.bossStats?.[bossId]?.hours || 0) + delta
+          });
+        });
+      }
+
+      const rawMembers = room.members || {};
+      const members = Object.keys(rawMembers).filter(m => m !== userName);
+      const isConductor = room.conductor === userName;
+      remove(ref(db, `rooms/${currentRoomId}/members/${userName}`));
+      update(ref(db, `rooms/${currentRoomId}`), {
+        conductor: isConductor ? (members[0] || room.conductor) : room.conductor,
+        emptySince: members.length === 0 ? Date.now() : null
+      });
+    }
+    setSessionStartTime(null);
+    setShowLeaveModal(false);
+    setCurrentRoomId(null);
+    setView('lobby');
+    window.history.pushState({}, '', window.location.pathname);
+  };
+
+  const removeMember = (targetName) => {
+    if (currentRoom.conductor !== userName) return;
+    remove(ref(db, `rooms/${currentRoomId}/members/${targetName}`));
+  };
+
+  const toggleWildBossExplore = () => {
+    const isActive = currentRoom.wildBossExplore?.[userName];
+    update(ref(db, `rooms/${currentRoomId}/wildBossExplore`), {
+      [userName]: isActive ? null : true
+    });
+    if (!isActive) {
+      update(ref(db, `rooms/${currentRoomId}`), {
+        voiceAlert: { message: `${userName} å·²ç¶å»æéäº`, ts: Date.now(), sender: userName }
+      });
+    }
+  };
+
+  const handleStationed = (chKey) => {
+    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { stationed: userName });
+  };
+
+  const addRecord = (manualChKey) => {
+    const chKey = manualChKey || `CH ${inputChannel.trim()}`;
+    if (!manualChKey && !inputChannel.trim()) return;
+    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
+      lastKill: Date.now(),
+      reporter: userName,
+      stationed: null
+    });
+
+    // å¢å æ¿éç¸½ææ®º
+    update(ref(db, `rooms/${currentRoomId}`), { 
+      totalKills: (currentRoom.totalKills || 0) + 1,
+      wildBossExplore: null
+    });
+
+    // å¢å åäººè Boss åå¥çµ±è¨
+    if (currentUser && currentRoom) {
+      const bossId = currentRoom.bossId;
+      const userRef = ref(db, `users/${currentUser.uid}`);
+      get(userRef).then(snap => {
+        const data = snap.val() || {};
+        const newActivity = {
+          bossId,
+          bossName: currentBoss.name,
+          ch: chKey,
+          at: Date.now()
+        };
+        const recent = data.recentActivity || [];
+        const updatedRecent = [newActivity, ...recent].slice(0, 5);
+        
+        update(userRef, {
+          totalKills: (data.totalKills || 0) + 1,
+          [`bossStats/${bossId}/kills`]: (data.bossStats?.[bossId]?.kills || 0) + 1,
+          recentActivity: updatedRecent
+        });
+      });
+    }
+
+    // æ´æ° Session ææ®ºè¨æ¸ (v1.6.2)
+    setSessionKills(prev => prev + 1);
+
+    if (!manualChKey) setInputChannel('');
+  };
+
+  const removeRecord = (chKey) => {
+    remove(ref(db, `rooms/${currentRoomId}/records/${chKey}`));
+  };
+
+  const markAsReady = (chKey) => {
+    const readyTime = Date.now() - (currentBoss.time * 60 * 1000);
+    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
+      lastKill: readyTime,
+      reporter: userName,
+      stationed: null
+    });
+  };
+
+  const sendInheritanceRequest = (targetId) => {
+    set(ref(db, `rooms/${targetId}/inheritanceRequest`), {
+      fromRoomId: currentRoomId,
+      fromConductor: userName,
+      at: Date.now(),
+      status: 'pending'
+    });
+    setShowInheritanceModal(false);
+    alert("â¤ï¸ æçå°ç¦®ç©å·²ç¼éï¼");
+  };
+
+  const handleInheritanceResponse = (accept) => {
+    if (accept) {
+      const fromRoom = rooms[currentRoom.inheritanceRequest.fromRoomId];
+      if (!fromRoom) return alert("å°æ¹çææ¶å¤±äº...");
+      const myRecords = currentRoom.records || {};
+      const fromRecords = fromRoom.records || {};
+      const mergedRecords = { ...myRecords };
+      Object.keys(fromRecords).forEach(ch => {
+        if (!mergedRecords[ch] || fromRecords[ch].lastKill > mergedRecords[ch].lastKill) {
+          mergedRecords[ch] = fromRecords[ch];
+        }
+      });
+      update(ref(db, `rooms/${currentRoomId}`), { records: mergedRecords, inheritanceRequest: null });
+      remove(ref(db, `rooms/${fromRoom.id}`));
+    } else {
+      update(ref(db, `rooms/${currentRoomId}`), { inheritanceRequest: null });
+    }
+  };
+
+  const formatTime = (ms) => {
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const exportReport = () => {
+    const element = document.getElementById('kill-report-card');
+    if (!element) return;
+    html2canvas(element, { backgroundColor: '#1a1a1a', scale: 2 }).then(canvas => {
+      const link = document.createElement('a');
+      link.download = `PiKaPiæå ±.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    });
+  };
+
+  const adminDeleteRoom = (roomId) => {
+    if (!window.confirm(`ç¢ºå®è¦ãå¼·å¶åªé¤ãæ¿è ${roomId} åï¼`)) return;
+    remove(ref(db, `rooms/${roomId}`));
+  };
+
+  const adminKickMember = (roomId, memberName) => {
+    if (!window.confirm(`ç¢ºå®è¦å°æå¡ ${memberName} ãå¼·å¶ä¸è»ãåï¼`)) return;
+    remove(ref(db, `rooms/${roomId}/members/${memberName}`));
+  };
+
+  const applyForMembership = () => {
+    if (!currentUser) return;
+    update(ref(db, `users/${currentUser.uid}`), { 
+      status: 'pending',
+      appliedAt: Date.now()
+    });
+    alert("ð ç³è«å·²éåºï¼è«ç­å¾ææ®å®å¯©æ ¸ã");
+  };
+
+  const adminApproveUser = (uid) => {
+    update(ref(db, `users/${uid}`), { status: 'approved' });
+    alert("â å¯©æ ¸ééï¼");
+  };
+
+  const adminRejectUser = (uid) => {
+    if (!window.confirm("ç¢ºå®è¦ãæçµãæ­¤ç³è«åï¼")) return;
+    update(ref(db, `users/${uid}`), { status: 'rejected' });
+    alert("â å·²æçµç³è«ã");
+  };
+
+  const adminTransferConductor = (roomId, newConductor) => {
+    if (!window.confirm(`ç¢ºå®è¦å°æ¿è ${roomId} çãè»é·ãè½ç§»çµ¦ ${newConductor} åï¼`)) return;
+    update(ref(db, `rooms/${roomId}`), { conductor: newConductor });
+  };
+
+  const adminResetUserStats = (uid) => {
+    if (!window.confirm("ç¢ºå®è¦ãéç½®ãè©²æå¡çæææçæ¸æèæé·åï¼æ­¤åä½ä¸å¯éï¼")) return;
+    const userRef = ref(db, `users/${uid}`);
+    update(userRef, {
+      totalKills: 0,
+      totalHours: 0,
+      bossStats: null,
+      recentActivity: null
+    });
+  };
+
+  const getUserCurrentLocation = (name) => {
+    const activeRoom = Object.values(rooms).find(r => r.members && r.members[name]);
+    return activeRoom ? `æ¿è #${activeRoom.id}` : "å¤§å»³";
+  };
+
+  const sendGlobalBroadcast = () => {
+    if (!broadcastInput.trim()) return;
+    set(ref(db, 'globalBroadcast'), {
+      message: broadcastInput.trim(),
+      ts: Date.now(),
+      sender: userName
+    });
+    setBroadcastInput('');
+    alert("ð¢ å¨åå»£æ­å·²ç¼éï¼ææç·ä¸æå¡å°æ¶å°èªé³æç¤ºã");
+  };
+
+  const renderAdminDashboard = () => {
+    const roomList = Object.entries(rooms).map(([id, data]) => ({ id, ...data }));
+    const userList = Object.entries(allUsers).map(([uid, data]) => ({ uid, ...data }));
+    return (
+      <div className="admin-container">
+        <div className="admin-header">
+          <div className="admin-title">ð¡ï¸ æ°ç¥ææ®é¨ <span className="admin-subtitle">æé«ç®¡çæ¬é</span></div>
+          <div className="admin-tabs">
+            <button className={`admin-tab ${adminTab === 'rooms' ? 'active' : ''}`} onClick={() => setAdminTab('rooms')}>æ¿éæ¦æ³</button>
+            <button className={`admin-tab ${adminTab === 'users' ? 'active' : ''}`} onClick={() => setAdminTab('users')}>æå¡æ¸æ</button>
+          </div>
+          <button className="btn-secondary back-lobby-btn-small" onClick={() => setView('lobby')}>è¿åå¤§å»³</button>
+        </div>
+        <div className="admin-content card-bg glass-panel">
+          <div className="admin-broadcast-section">
+            <h3>ð¢ å¨åèªé³å»£æ­</h3>
+            <div className="broadcast-input-group">
+              <input 
+                type="text" 
+                placeholder="å¨æ­¤è¼¸å¥éè¦å»£æ­è¨æ¯..." 
+                value={broadcastInput} 
+                onChange={e => setBroadcastInput(e.target.value)}
+                onKeyPress={e => e.key === 'Enter' && sendGlobalBroadcast()}
+              />
+              <button className="btn-primary" onClick={sendGlobalBroadcast}>ç¼éå¨åå»£æ­</button>
+            </div>
+          </div>
+
+          {adminTab === 'rooms' ? (
+            <div className="admin-table-wrapper">
+              <table className="admin-table">
+                <thead><tr><th>æ¿è</th><th>Boss</th><th>å¯ç¢¼</th><th>è»é·</th><th>ç¶åæå¡ / ç®¡ç</th><th>æä½</th></tr></thead>
+                <tbody>
+                  {roomList.map(r => {
+                    const membersMap = r.members || {};
+                    return (
+                      <tr key={r.id}>
+                        <td className="admin-room-id">#{r.id}</td>
+                        <td className="admin-boss-name">{BOSSES[r.bossId]?.name || r.bossId}</td>
+                        <td className="admin-room-pwd code-font">{r.password}</td>
+                        <td className="admin-conductor">{r.conductor}</td>
+                        <td className="admin-members">
+                          <div className="admin-member-tags">
+                            {Object.keys(membersMap).map(m => {
+                              const isCond = r.conductor === m;
+                              return (
+                                <div 
+                                  key={m} 
+                                  className={`admin-member-tag ${isCond ? 'is-cond' : ''} ${adminMenu?.m === m && adminMenu?.rid === r.id ? 'active' : ''}`}
+                                  onClick={() => setAdminMenu(adminMenu?.m === m && adminMenu?.rid === r.id ? null : { rid: r.id, m })}
+                                >
+                                  <span className="m-name">{isCond ? 'ð' : ''} {m}</span>
+                                  {adminMenu?.m === m && adminMenu?.rid === r.id && (
+                                    <div className="admin-member-actions-popup glass-panel">
+                                      {!isCond && <button onClick={(e) => { e.stopPropagation(); adminTransferConductor(r.id, m); setAdminMenu(null); }}>ð æçºè»é·</button>}
+                                      <button className="kick-btn-popup" onClick={(e) => { e.stopPropagation(); adminKickMember(r.id, m); setAdminMenu(null); }}>ð¥¾ å¼·å¶ä¸è»</button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {Object.keys(membersMap).length === 0 && <span className="no-members">å°ç¡æå¡</span>}
+                          </div>
+                        </td>
+                        <td>
+                          <button className="admin-btn-view" onClick={() => { setCurrentRoomId(r.id); setView('join'); }}>æ¥ç</button>
+                          <button className="admin-btn-delete" onClick={() => adminDeleteRoom(r.id)}>è§£æ£</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="admin-users-view">
+              <div className="admin-user-sub-nav">
+                <div className="sub-nav-btns">
+                  <button className={adminUserSubTab === 'stats' ? 'active' : ''} onClick={() => setAdminUserSubTab('stats')}>ð¥ ç¸¾ææè¡</button>
+                  <button className={adminUserSubTab === 'directory' ? 'active' : ''} onClick={() => setAdminUserSubTab('directory')}>ðï¸ åéç®¡ç</button>
+                </div>
+                <div className="admin-search-bar">
+                  <input 
+                    type="text" 
+                    placeholder="æå°æ±ç¨±æ UID..." 
+                    value={adminUserSearchTerm}
+                    onChange={e => setAdminUserSearchTerm(e.target.value)}
+                  />
+                </div>
+              </div>
+              
+              {/* --- ç³è«ç­å¾å (v4.9) --- */}
+              {adminUserSubTab === 'directory' && Object.values(allUsers).some(u => u.status === 'pending') && (
+                <div className="admin-pending-section glass-panel">
+                  <h3>ð¡ï¸ ç³è«ç­å¾å (Pending Requests)</h3>
+                  <div className="pending-list">
+                    {Object.values(allUsers).filter(u => u.status === 'pending').map(pu => (
+                      <div key={pu.uid} className="pending-card">
+                        <div className="p-user-info">
+                          <img src={pu.photoURL || 'https://via.placeholder.com/40'} alt="avatar" />
+                          <div className="p-text">
+                            <span className="p-name">{pu.displayName}</span>
+                            <span className="p-uid">{pu.uid}</span>
+                          </div>
+                        </div>
+                        <div className="p-actions">
+                          <button className="btn-approve" onClick={() => adminApproveUser(pu.uid)}>åæ</button>
+                          <button className="btn-reject" onClick={() => adminRejectUser(pu.uid)}>æçµ</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="admin-table-wrapper">
+                {adminUserSubTab === 'stats' ? (
+                  <table className="admin-table">
+                    <thead><tr><th>å®æ´ UID</th><th>æ±ç¨±</th><th>ç¸½ææ®º</th><th>ç¸½æçæé</th></tr></thead>
+                    <tbody>
+                      {userList
+                        .filter(u => (u.nickname || u.displayName || '').includes(adminUserSearchTerm) || u.uid.includes(adminUserSearchTerm))
+                        .map(u => (
+                        <tr key={u.uid}>
+                          <td className="admin-uid code-font" style={{wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px'}}>{u.uid}</td>
+                          <td className="admin-nickname">{u.nickname || u.displayName}</td>
+                          <td className="admin-kills">{u.totalKills || 0}</td>
+                          <td>{(u.totalHours || 0).toFixed(1)} h</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="admin-table">
+                    <thead><tr><th>æå¡</th><th>å®æ´ UID</th><th>çæ</th><th>ä½ç½®</th><th>å å¥æ¥æ</th><th>ç¶­è­·</th></tr></thead>
+                    <tbody>
+                      {userList
+                        .filter(u => (u.nickname || u.displayName || '').includes(adminUserSearchTerm) || u.uid.includes(adminUserSearchTerm))
+                        .map(u => (
+                        <tr key={u.uid}>
+                          <td className="admin-user-cell">
+                            <img src={u.photoURL || 'https://via.placeholder.com/30'} alt="avatar" className="admin-mini-avatar" />
+                            <span>{u.nickname || u.displayName}</span>
+                          </td>
+                          <td className="admin-uid code-font" style={{wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px'}}>{u.uid}</td>
+                          <td>
+                            <span className={`status-dot ${u.isOnline ? 'online' : 'offline'}`}></span>
+                            {u.isOnline ? 'å¨ç·ä¸' : 'é¢ç·'}
+                          </td>
+                          <td className="location-text">{getUserCurrentLocation(u.nickname || u.displayName)}</td>
+                          <td className="date-text">{u.createdAt ? new Date(u.createdAt).toLocaleString([], {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit'}) : 'æ©ææå¡'}</td>
+                          <td>
+                            <button className="btn-danger btn-micro" onClick={() => adminResetUserStats(u.uid)}>éç½®</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const bossRooms = useMemo(() => {
+    if (!rooms) return [];
+    return Object.values(rooms).filter(r => r && r.bossId === selectedBossId);
+  }, [rooms, selectedBossId]);
+
+  const renderContent = () => {
+    if (authChecking) return <div className="loading-screen">é£ç·ä¸­...</div>;
+    try {
+      if (view === 'landing' || !currentUser) {
+        return (
+          <div className="landing-page-container">
+            <div className="landing-content glass-panel">
+              <h1 className="landing-title neon-text">PIKAPI<br/>GUILD TRACKER</h1>
+              <p className="landing-subtitle">å°æ¥­å¬ææ°å½¹ç®¡çã»å°å±¬æ°å ±ã»ææå³ä¸å» v2.1</p>
+              <button className="login-btn-large" onClick={handleLogin}>
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" />
+                ä½¿ç¨ Google å¸³èç»å¥
+              </button>
+            </div>
+          </div>
+        );
+      }
+      
+      // æªç³è«çä½¿ç¨èç«é¢ (v4.9)
+      if (currentUser && currentUser.profile?.status === 'new' && view === 'landing') {
+        return (
+          <div className="landing-container">
+            <div className="landing-content glass-panel">
+              <div className="brand-badge">Step 2: æ¬éç³è«</div>
+              <h1>æ­¡è¿ä¾å° PiKaPi ææ®é¨</h1>
+              <p className="landing-subtitle">è«é»æä¸æ¹æéåç®¡çå¡æäº¤ãä½¿ç¨ç³è«ãï¼<br/>å¯©æ ¸ééå¾å³å¯éå§ç´éã v2.1</p>
+              <button className="apply-btn-premium" onClick={applyForMembership}>
+                ð æäº¤å å¥ç³è«
+              </button>
+              <button 
+                className="btn-danger" 
+                onClick={handleLogout} 
+                style={{marginTop: '20px', background: 'transparent', border: 'none', textDecoration: 'underline', color: 'rgba(255,255,255,0.4)'}}
+              >
+                åæå¸³èç»åº
+              </button>
+            </div>
+          </div>
+        );
+      }
+      const isAdmin = currentUser?.uid === ADMIN_UID;
+      const userStatus = currentUser?.profile?.status;
+
+      if (view === 'admin' && isAdmin) return renderAdminDashboard();
+      
+      // ç­å¾å¯©æ ¸æè¢«æçµçç¹æ®è¦å (v4.9)
+      if (currentUser && !isAdmin && userStatus !== 'approved') {
+        const isPending = userStatus === 'pending';
+        const isRejected = userStatus === 'rejected';
+
+        return (
+          <div className="landing-container waiting-room-view">
+            <div className="landing-content glass-panel">
+              <div className="waiting-animation">
+                <span className="wait-icon">{isRejected ? 'â' : 'ð¡ï¸'}</span>
+              </div>
+              <h1>{isRejected ? 'ç³è«æªéé' : 'å¥éç³è«å¯©æ ¸ä¸­'}</h1>
+              <p className="landing-subtitle">
+                {isRejected 
+                  ? 'å¾éºæ¾ï¼æ¨çç³è«æ«ææªç²æ ¸åãå¦æçåè«æ´½å¬æå¹¹é¨ã' 
+                  : 'ææ®å®æ­£å¨å¯©æ ¸æ¨çç³è«ï¼è«èå¿ç­åãééå¾å°èªåé²å¥å¤§å»³ã'}
+              </p>
+              <div className="waiting-actions" style={{marginTop: '30px'}}>
+                {isRejected && (
+                  <button className="login-btn-large" onClick={applyForMembership}>éæ°æäº¤ç³è«</button>
+                )}
+                <button className="btn-danger" onClick={handleLogout} style={{marginTop: '15px'}}>ç»åºå¸³è</button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+      if (view === 'profile') {
+        const stats = currentUser.profile?.bossStats || {};
+        const rank = getRankInfo(currentUser.profile?.totalKills, currentUser.profile?.totalHours);
+        
+        return (
+          <div className="profile-page-container">
+            <div className="profile-card glass-panel">
+              <div className="profile-header">
+                <div className="avatar-wrapper" onClick={() => avatarInputRef.current.click()}>
+                  <img src={currentUser.photoURL || 'https://via.placeholder.com/150'} alt="Avatar" className="profile-avatar-large" />
+                  <div className="rank-badge-overlay">{rank.badge}</div>
+                  <div className="avatar-edit-overlay">æ´æ</div>
+                  <input 
+                    type="file" 
+                    ref={avatarInputRef} 
+                    style={{display: 'none'}} 
+                    accept="image/*" 
+                    onChange={handleAvatarUpload}
+                  />
+                </div>
+                <div className="profile-info">
+                  <p className="profile-rank" style={{ color: rank.color }}>{rank.title}</p>
+                  <h2>{userName}</h2>
+                  <p className="profile-uid" style={{fontSize: '10px', opacity: 0.5}}>{currentUser.uid}</p>
+                  <div className="profile-edit-name">
+                    <input type="text" defaultValue={userName} id="profileNameInput" placeholder="æ±ç¨±" />
+                    <button onClick={() => updateProfileName(document.getElementById('profileNameInput').value)}>æ´æ°</button>
+                    <button className="btn-secondary-glass" onClick={() => setShowAvatarModal(true)}>ä½¿ç¨é è¨­é ­å</button>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="profile-stats-summary">
+                <div className="stat-main">
+                  <span className="label">ç¸½ææ®ºç´é</span>
+                  <span className="value">{currentUser.profile?.totalKills || 0} <small>é»</small></span>
+                </div>
+                <div className="stat-main">
+                  <span className="label">ç¸½ç«å´æé·</span>
+                  <span className="value">{(currentUser.profile?.totalHours || 0).toFixed(1)} <small>h</small></span>
+                </div>
+              </div>
+
+              <div className="mastery-section">
+                <h3>ð¾ éçå°ç²¾æ¸æ (Boss Mastery)</h3>
+                <div className="mastery-grid">
+                  {Object.entries(BOSSES).map(([id, boss]) => {
+                    const bStats = stats[id] || { kills: 0, hours: 0 };
+                    return (
+                      <div key={id} className="mastery-card" style={{ borderLeft: `4px solid ${boss.color}` }}>
+                        <div className="m-boss-icon" style={{ backgroundColor: `${boss.color}22`, color: boss.color }}>{boss.name[0]}</div>
+                        <div className="m-info">
+                          <div className="m-name">{boss.name}</div>
+                          <div className="m-stats">
+                            <span>ææ®º: <strong>{bStats.kills || 0}</strong></span>
+                            <span>æé·: <strong>{(bStats.hours || 0).toFixed(1)}h</strong></span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="recent-activity-section">
+                <h3>ð è¿ææ°æ (Recent Highlights)</h3>
+                <div className="activity-list">
+                  {(currentUser.profile?.recentActivity || []).length === 0 && <div className="empty-msg">å°ç¡ææ®ºç´éï¼å¿«å»æçå§ï¼</div>}
+                  {(currentUser.profile?.recentActivity || []).map((act, i) => (
+                    <div key={i} className="activity-item">
+                      <span className="act-time">{new Date(act.at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                      <span className="act-boss">{act.bossName}</span>
+                      <span className="act-ch">{act.ch}</span>
+                      <span className="act-badge">ææ®º â</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              <button className="back-lobby-btn" onClick={backToLobby}>åå¤§å»³</button>
+            </div>
+          </div>
+        );
+      }
+      if (view === 'lobby') {
+        return (
+          <div className="lobby-container">
+            <header className="lobby-header">
+              <div className="version-tag">Build v2.1 - ææ®ä¸­å¿å·²ä¸ç·</div>
+              <h1>PiKaPi å¬æåè«§æçè¶£</h1>
+              <p>å°æ¥­éçç´éç®¡çç³»çµ±</p>
+            </header>
+            <section className="lobby-controls">
+              <div className="boss-selector">
+                <label>é¸æéçï¼</label>
+                <select value={selectedBossId} onChange={(e) => setSelectedBossId(e.target.value)}>
+                  {Object.entries(BOSSES).map(([id, boss]) => (
+                    <option key={id} value={id}>{boss.name} ({boss.area})</option>
+                  ))}
+                </select>
+              </div>
+              <button className="create-btn" onClick={() => setShowCreateModal(true)}>åµå»ºæçæ¿é</button>
+            </section>
+            <section className="room-list">
+              <h3>æ¿éåè¡¨ - {BOSSES[selectedBossId].name}</h3>
+              <div className="list-container">
+                <div className="list-header lobby-table-header">
+                  <span>æ¿è</span><span>è»é·</span><span>äººæ¸</span><span>æçºæé</span><span>çæ</span><span>æä½</span>
+                </div>
+                {bossRooms.length === 0 && <div className="empty-msg">ç®åæ²ææ¿éï¼å¿«å»ç¶è»é·å§ï¼</div>}
+                {bossRooms.map(room => (
+                  <div key={room.id} className="list-row">
+                    <div className="col-ch">{room.id}</div>
+                    <div className="col-boss">{room.conductor}</div>
+                    <div className="col-timer">{Object.keys(room.members || {}).length}/4</div>
+                    <div className="col-status">{formatTime(now - room.createdAt)}</div>
+                    <div className="col-window">
+                      {Object.keys(room.members || {}).length === 0 ? (
+                        <span className="delete-countdown">ç¡æå¡ (æ¸çä¸­: {formatTime(ROOM_AUTO_DELETE_MS - (now - room.emptySince))})</span>
+                      ) : "ç±çæçä¸­..."}
+                    </div>
+                    <div className="col-actions">
+                      <button className="row-kill-btn" onClick={() => { setCurrentRoomId(room.id); setView('join'); setJoinNameInput(userName); }}>å å¥æ¿é</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+            {showCreateModal && (
+              <div className="modal-overlay">
+                <div className="modal">
+                  <h2>åµå»ºæ¿é - {BOSSES[selectedBossId].name}</h2>
+                  <input type="text" value={newRoomConductor} onChange={(e) => setNewRoomConductor(e.target.value)} placeholder="è»é·åç¨±" />
+                  <div className="modal-btns">
+                    <button onClick={createRoom}>ç¢ºå®</button>
+                    <button onClick={() => setShowCreateModal(false)} className="cancel-btn">åæ¶</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+      if (view === 'join') {
+        const room = rooms[currentRoomId];
+        if (!room) return <div className="error-view">æ¿éå·²ä¸å­å¨ <button onClick={backToLobby}>åå¤§å»³</button></div>;
+        return (
+          <div className="join-container">
+            <div className="modal">
+              <h2>å å¥æ¿é {currentRoomId}</h2>
+              <p>Boss: {BOSSES[room.bossId]?.name}</p>
+              <input type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} placeholder="å¯ç¢¼" />
+              <input value={joinNameInput} onChange={(e) => setJoinNameInput(e.target.value)} placeholder="æ¨çåç¨±" />
+              <div className="modal-btns">
+                <button onClick={joinRoom}>ä¸è»</button>
+                <button onClick={backToLobby} className="cancel-btn">åå¤§å»³</button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+      if (view === 'room' && currentRoom) {
+        const isConductor = currentRoom.conductor === userName;
+        const members = Object.keys(currentRoom.members || {});
+        const records = currentRoom.records || {};
+        const sessionDurationHrs = sessionStartTime ? (Date.now() - sessionStartTime) / (1000 * 60 * 60) : 0;
+        const efficiency = sessionDurationHrs > 0 ? (sessionKills / sessionDurationHrs).toFixed(1) : '0.0';
+        const wildExplorers = Object.entries(currentRoom.wildBossExplore || {}).filter(([,v]) => v).map(([k]) => k);
+
+        return (
+          <div className={`room-container boss-theme-${currentRoom.bossId}`}>
+            {/* å·¦å´æ¬ */}
+            <aside className="room-sidebar">
+              <div className="my-identity">
+                <label>æ¨çèº«åï¼</label>
+                <div className="identity-val">
+                  <span className="badge-role">{isConductor ? 'å¹¸éè»é·' : 'æå®¢æå¡'}</span>
+                  <span className="badge-name">{userName}</span>
+                </div>
+              </div>
+
+              <div className="member-list">
+                <h3 style={{marginBottom:'12px', color:'var(--gold)', fontSize:'0.85rem'}}>è»å§æå¡ {members.length}/4</h3>
+                {members.map(m => (
+                  <div key={m} className="member-item">
+                    <div className="member-info">
+                      <span>ð</span>
+                      <span>{m}</span>
+                      {m === currentRoom.conductor && <span className="badge-role" style={{fontSize:'0.65rem'}}>è»é·</span>}
+                    </div>
+                    {isConductor && m !== userName && (
+                      <div className="member-actions">
+                        <button className="remove-btn-mini" onClick={() => removeMember(m)}>è¸¢é¤</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="boss-info-panel">
+                <h3 style={{marginBottom:'12px', color:'var(--gold)', fontSize:'0.85rem'}}>BOSS è³è¨</h3>
+                <div style={{fontSize:'1.1rem', fontWeight:'800', color:'var(--accent)', marginBottom:'6px'}}>{currentBoss.name}</div>
+                <div style={{fontSize:'0.85rem', color:'var(--text-secondary)'}}>éçæé: <strong style={{color:'#fff'}}>{currentBoss.time} åé</strong></div>
+                <div style={{fontSize:'0.85rem', color:'var(--text-secondary)'}}>å°å: {currentBoss.area}</div>
+              </div>
+
+              <div className="kill-report-panel">
+                <h3>ð ææ®ºå ±å (TODAY)</h3>
+                <div className="report-content">
+                  <div className="report-group-title">æ¿å§ç¸½ç´¯è¨ (OVERALL)</div>
+                  <div className="report-item">
+                    <span className="label">æ¿è / BOSS:</span>
+                    <span className="val highlight">{currentRoomId} - {currentBoss.name}</span>
+                  </div>
+                  <div className="report-item total-kills-row">
+                    <span className="label">ç¸½ææ®ºæ¬¡æ¸:</span>
+                    <span className="val highlight count-box">{currentRoom.totalKills || 0} æ¬¡</span>
+                  </div>
+                  <div className="report-item">
+                    <span className="label">ç¸½å±èªç¨:</span>
+                    <span className="val">{formatTime(now - currentRoom.createdAt)}</span>
+                  </div>
+                  <div className="report-divider" />
+                  <div className="report-group-title guest-title">æ¨çé¨è»éç¨ (YOUR SESSION)</div>
+                  <div className="report-personal-grid">
+                    <div className="personal-stat-card">
+                      <span className="p-label">å·²é¨è»</span>
+                      <span className="p-val">{formatTime(now - (sessionStartTime || now))}</span>
+                    </div>
+                    <div className="personal-stat-card">
+                      <span className="p-label">å±ææ®º</span>
+                      <span className="p-val">{sessionKills}<small>æ¬¡</small></span>
+                    </div>
+                    <div className="personal-stat-card">
+                      <span className="p-label">æèªæç</span>
+                      <span className="p-val">{efficiency}<small>é»/hr</small></span>
+                    </div>
+                  </div>
+                  <div style={{fontSize:'0.8rem', color:'var(--text-secondary)', marginTop:'8px'}}>
+                    <div style={{marginBottom:'4px', color:'#888'}}>ç®åæå¡:</div>
+                    <div>{members.join('  ')}</div>
+                  </div>
+                </div>
+                <button className="export-btn" onClick={exportReport}>ð¼ï¸ å¯åºææ®ºæ°å ± (PNG)</button>
+                <button className="love-btn" onClick={() => setShowInheritanceModal(true)}>
+                  <span>â¤ï¸</span> ææå³ä¸å» (ç¹¼æ¿çµ¦ä»æ¿)
+                </button>
+              </div>
+            </aside>
+
+            {/* å³å´ä¸»å */}
+            <main className="room-main">
+              {wildExplorers.length > 0 && (
+                <div className="wild-boss-broadcast">
+                  <span className="broadcast-icon">ð</span>
+                  <span className="broadcast-text">
+                    <span className="explorers">{wildExplorers.join('ã')}</span> é¤äºå»æéçï¼
+                  </span>
+                </div>
+              )}
+
+              <div className="room-header">
+                <div className="room-info">
+                  <h2 style={{color:'var(--gold)', fontSize:'1.6rem'}}>æ¿è: <strong>{currentRoomId}</strong></h2>
+                  <div className="room-password" style={{marginTop:'8px'}}>
+                    <span style={{fontSize:'0.75rem', color:'var(--text-secondary)'}}>æ¿éå¯ç¢¼:</span>
+                    <div className="password-controls">
+                      <span className="password-large">{currentRoom.password || 'ç¡'}</span>
+                      <button className="copy-btn-mini" onClick={() => navigator.clipboard.writeText(currentRoom.password || '').then(() => alert('å·²è¤è£½ï¼'))}>è¤è£½</button>
+                    </div>
+                  </div>
+                </div>
+                <div className="header-actions">
+                  <button className="voice-config-btn" onClick={() => setShowVoiceSettings(true)}>âï¸ èªé³è¨­å®</button>
+                  <button className="share-btn" onClick={() => navigator.clipboard.writeText(window.location.href).then(() => alert('é£çµå·²è¤è£½ï¼'))}>åäº«æ¿éé£çµ</button>
+                  <button className="leave-btn" onClick={() => setShowLeaveModal(true)}>ä¸è»é¢é (è¿åå¤§å»³)</button>
+                  <button className={`explore-toggle-btn ${currentRoom.wildBossExplore?.[userName] ? 'active' : ''}`} onClick={toggleWildBossExplore}>
+                    {currentRoom.wildBossExplore?.[userName] ? 'â åæ¶æé' : 'ð é¤äºå»æé'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="input-section">
+                <input
+                  type="text"
+                  value={inputChannel}
+                  onChange={e => setInputC
+³è¨­å®</button>
+                  <button className="v16-btn-share" onClick={() => navigator.clipboard.writeText(window.location.href).then(() => alert('é£çµå·²è¤è£½ï¼'))}>åäº«æ¿éé£çµ</button>
+                  <button className="v16-btn-leave" onClick={() => setShowLeaveModal(true)}>ä¸è»é¢é (è¿åå¤§å»³)</button>
+                  <button className={`v16-btn-wild ${currentRoom.wildBossExplore?.[userName] ? 'active' : ''}`} onClick={toggleWildBossExplore}>
+                    {currentRoom.wildBossExplore?.[userName] ? 'â åæ¶æé' : 'ð é¤äºå»æé'}
+                  </button>
+                </div>
+              </header>
+
+              <section className="v16-input-section">
+                <input type="text" value={inputChannel} onChange={e => setInputChannel(e.target.value)} placeholder="è¼¸å¥é »é (ä¾: 5)" onKeyPress={e => e.key === 'Enter' && addRecord()} className="v16-ch-input" />
+                <button onClick={() => addRecord()} className="v16-btn-kill">å·²ææ®ºéå§è¨æ</button>
+              </section>
+
+              <section className="v16-table-section">
+                <div className="v16-table-container">
+                  <div className="v16-table-header">
+                    <span>é »é</span><span>éçåç¨±</span><span>åæ¸è¨æ</span><span>ç®åçæ</span><span>åå ±è</span><span>é »éæä½</span>
+                  </div>
+                  {Object.keys(records).length === 0 ? (
+                    <div className="v16-empty">ç®åæ²æç´éï¼è«è¼¸å¥é »ééå§ã</div>
+                  ) : (
+                    Object.keys(records).sort((a,b) => records[a].lastKill - records[b].lastKill).map(ch => {
+                      const remaining = currentBoss.time - (now - records[ch].lastKill) / 60000;
+                      const isReady = remaining <= 0;
+                      return (
+                        <div key={ch} className={`v16-table-row ${isReady ? 'row-ready' : ''}`}>
+                          <span className="v16-col-ch">{ch}</span>
+                          <span className="v16-col-bossname">{currentBoss.name}</span>
+                          <span className="v16-col-timer">{isReady ? 'READY' : formatTime(remaining * 60000)}</span>
+                          <span className="v16-col-status">
+                            <span className={isReady ? 'badge-ready' : 'badge-wait'}>{isReady ? 'READY' : 'éçä¸­'}</span>
+                          </span>
+                          <span className="v16-col-reporter">{records[ch].reporter}</span>
+                          <span className="v16-col-actions">
+                            <button onClick={() => handleStationed(ch)}>ä½ä½</button>
+                            <button className="v16-kill-btn" onClick={() => addRecord(ch)}>ææ®º</button>
+                            <button className="v16-del-btn" onClick={() => removeRecord(ch)}>åªé¤</button>
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+            </main>
+          </div>
+        );
+      }
+      return <div>æªç¥é é¢</div>;
+    } catch (err) {
+      return <div className="error-view">ç³»çµ±é¯èª¤ <button onClick={backToLobby}>è¿å</button></div>;
+    }
+  };
+
+  return (
+    <div className={`app-wrapper ${view}-view`}>
+      {globalBroadcast && (
+        <div className="global-broadcast-banner">
+          <div className="banner-content">
+            <span className="banner-icon">ð¢</span>
+            <span className="banner-text">ãææ®ä¸­å¿å¬åã{globalBroadcast.message}</span>
+            <span className="banner-close" onClick={() => setGlobalBroadcast(null)}>Ã</span>
+          </div>
+        </div>
+      )}
+      <header className="global-header">
+        <div className="header-logo" onClick={() => (currentUser ? setView('lobby') : setView('landing'))}>
+          <span>PiKaPi</span> <span className="boss-highlight">BOSS</span> Tracker
+        </div>
+          {!currentUser ? (
+            <div className="header-actions">
+              <button className="login-btn-small" onClick={handleLogin}>
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" style={{ width: '18px', marginRight: '8px', verticalAlign: 'middle' }} />
+                <span>Google ç»å¥</span>
+              </button>
+            </div>
+          ) : (
+            <div className="user-profile-menu header-actions">
+              {currentUser?.uid === ADMIN_UID && (
+                <button 
+                  className={`admin-entry-btn ${view === 'admin' ? 'active' : ''}`} 
+                  onClick={() => setView('admin')}
+                >
+                  ð¡ï¸ ææ®é¨
+                </button>
+              )}
+              <span className="user-greeting">Hi, {userName}</span>
+              <img src={currentUser.photoURL || 'https://via.placeholder.com/40'} alt="avatar" className="header-avatar" onClick={() => setView('profile')} />
+              <button className="btn-danger logout-btn" onClick={handleLogout}>ç»åº</button>
+            </div>
+          )}
+      </header>
+      <main className="main-content-area">{renderContent()}</main>
+      {showInheritanceModal && (
+        <div className="modal-overlay inheritance-modal" onClick={() => setShowInheritanceModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h2>â¤ï¸ ææå³ä¸å»</h2>
+            <div className="love-list">
+              {bossRooms.filter(r => r.id !== currentRoomId).map(room => (
+                <button key={room.id} onClick={() => sendInheritanceRequest(room.id)}>å³çµ¦æ¿è {room.id} ({room.conductor})</button>
+              ))}
+            </div>
+            <button className="love-cancel-btn" onClick={() => setShowInheritanceModal(false)}>åæ¶</button>
+          </div>
+        </div>
+      )}
+      {currentRoom?.inheritanceRequest?.status === 'pending' && currentRoom.conductor === userName && (
+        <div className="incoming-love-overlay">
+          <div className="love-popup">
+            <h3>ä¾èªæ¿è {currentRoom.inheritanceRequest.fromRoomId} çæ</h3>
+            <div className="love-actions">
+              <button className="accept-love" onClick={() => handleInheritanceResponse(true)}>æ¥å â¤ï¸</button>
+              <button className="decline-love" onClick={() => handleInheritanceResponse(false)}>æçµ ð</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showAvatarModal && (
+        <div className="modal-overlay avatar-modal" onClick={() => setShowAvatarModal(false)}>
+          <div className="modal-content glass-panel" onClick={e => e.stopPropagation()}>
+            <h2 style={{marginBottom: '25px'}}>é¸æé è¨­é ­å</h2>
+            <div className="emoji-selection-grid">
+              {DEFAULT_ANIMALS.map(emoji => (
+                <div 
+                  key={emoji} 
+                  className={`emoji-option ${selectedEmoji === emoji ? 'active' : ''}`}
+                  onClick={() => setSelectedEmoji(emoji)}
+                >
+                  {emoji}
+                </div>
+              ))}
+            </div>
+            <div className="modal-btns" style={{marginTop: '30px'}}>
+              <button 
+                onClick={() => {
+                  if (selectedEmoji) {
+                    updateProfileAvatar(selectedEmoji);
+                    setShowAvatarModal(false);
+                  }
+                }}
+                disabled={!selectedEmoji}
+              >
+                ç¢ºå®
+              </button>
+              <button onClick={() => setShowAvatarModal(false)} className="cancel-btn">åæ¶</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showLeaveModal && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h2>ç¢ºå®ä¸è»ï¼</h2>
+            <button onClick={confirmLeave}>ç¢ºå®</button>
+            <button onClick={() => setShowLeaveModal(false)} className="cancel-btn">åæ¶</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
