@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db, auth, googleProvider } from './firebase';
-import { ref, onValue, set, update, remove, onDisconnect, get, off } from 'firebase/database';
+import { ref, onValue, set, update, remove, onDisconnect, get, off, query, orderByChild, equalTo } from 'firebase/database';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import html2canvas from 'html2canvas';
 import './membership.css';
@@ -32,7 +32,15 @@ const BOSSES = {
 };
 
 const ROOM_AUTO_DELETE_MS = 2 * 60 * 60 * 1000; // 2 小時
-const ADMIN_UID = 'dVqiQcpgNqR5xgHZbeGjsncgHeN2'; // 管理員專屬完整的 UID
+const ADMIN_UID = 'OFJlOe2XIXWfihSrJu49MzHKLgv1'; // 其他管理員的 UID
+const PIKA_UID = 'dVqiQcpgNqR5xgHZbeGjsncgHeN2'; // 最高指揮官不可被刪除或操作
+
+const getRoleInfo = (uid) => {
+  if (uid === PIKA_UID) return { role: 'Pika', desc: '最高指揮官不可被刪除或操作', color: '#ffb74d' };
+  if (uid === ADMIN_UID) return { role: '管理員', desc: '戰略指揮部管理員', color: '#4fc3f7' };
+  return { role: '成員', desc: '一般作戰成員', color: '#888' };
+};
+
 // --- 稱號系統配置 (v4.1 榮譽升級) ---
 const RANKS_CONFIG = [
   { title: '初心者', badge: '🌱', color: '#ffffff', minKills: 0, scale: 100, desc: '踏入戰場的新生力量，一切的起點。' },
@@ -138,6 +146,7 @@ function App() {
 
   const [presenceData, setPresenceData] = useState({});
   const [allUsers, setAllUsers] = useState({});
+  const [pendingUsers, setPendingUsers] = useState({}); // 即時監聽申請中用戶 (獨立於所有用戶)
   const [adminTab, setAdminTab] = useState('rooms'); // 'rooms' | 'users'
   const [adminUserSubTab, setAdminUserSubTab] = useState('stats'); // 'stats' | 'directory'
   const [adminUserSearchTerm, setAdminUserSearchTerm] = useState(''); // 搜尋過濾
@@ -155,9 +164,16 @@ function App() {
   const [isTabActive, setIsTabActive] = useState(true); // 頁面是否在前景 (v3.3)
   const [selectedMedal, setSelectedMedal] = useState(null); // 當前點選查看的勳章 (v4.4)
 
+  // Native Auth States (v3.0)
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [isNativeAuthVisible, setIsNativeAuthVisible] = useState(false);
+  const [authError, setAuthError] = useState('');
+
   const userHasSeenSelfInRoom = useRef(false);
   const lastPresenceUpdateTs = useRef(0); // 頻率限制 (v3.2)
-  const isAdmin = currentUser?.uid === ADMIN_UID;
+  const isAdmin = currentUser?.uid === ADMIN_UID || currentUser?.uid === PIKA_UID;
 
   const currentRoom = (currentRoomId && rooms && rooms[currentRoomId]) ? rooms[currentRoomId] : null;
   const currentBoss = (currentRoom && currentRoom.bossId && BOSSES[currentRoom.bossId])
@@ -191,10 +207,20 @@ function App() {
     }
   };
 
-  // 1. 初始化大廳數據 (僅一次，大幅省流量 v3.2)
+  // 1. 大廳數據即時監聽 (v4.1 改為即時同步，解決 Admin 刪房後大廳殘留問題)
   useEffect(() => {
     if (view === 'lobby' && isTabActive) {
-      fetchRoomSummaries();
+      setIsSummariesLoading(true);
+      const summariesRef = ref(db, 'roomSummaries');
+      const unsubscribe = onValue(summariesRef, (snapshot) => {
+        setRoomSummaries(snapshot.val() || {});
+        setLastSummariesUpdate(Date.now());
+        setIsSummariesLoading(false);
+      }, (error) => {
+        console.error("Lobby sync error:", error);
+        setIsSummariesLoading(false);
+      });
+      return () => unsubscribe();
     }
   }, [view, isTabActive]);
 
@@ -272,7 +298,7 @@ function App() {
   }, [adminMenu]);
 
   const fetchAllUsers = async () => {
-    if (currentUser?.uid !== ADMIN_UID) return;
+    if (!isAdmin) return;
     setIsUsersLoading(true);
     try {
       const snapshot = await get(ref(db, 'users'));
@@ -293,6 +319,26 @@ function App() {
       const globalPresenceRef = ref(db, 'presence');
       return onValue(globalPresenceRef, (snapshot) => {
         setPresenceData(snapshot.val() || {});
+      });
+    }
+  }, [view, isAdmin, isTabActive]);
+
+  // 獨立即時監聽申請中 (pending) 成員，以節省流量且不漏接申請
+  useEffect(() => {
+    if (view === 'admin' && isAdmin && isTabActive) {
+      const pendingQuery = query(ref(db, 'users'), orderByChild('status'), equalTo('pending'));
+      return onValue(pendingQuery, (snapshot) => {
+        setPendingUsers(snapshot.val() || {});
+      });
+    }
+  }, [view, isAdmin, isTabActive]);
+
+  // 管理界面的全域房間即時同步 (需要完整解析密碼與踢除權限)
+  useEffect(() => {
+    if (view === 'admin' && isAdmin && isTabActive) {
+      const fullRoomsRef = ref(db, 'rooms');
+      return onValue(fullRoomsRef, (snapshot) => {
+        setRooms(snapshot.val() || {});
       });
     }
   }, [view, isAdmin, isTabActive]);
@@ -320,42 +366,52 @@ function App() {
         let userData = snapshot.val();
         
         if (!userData) {
+          // 如果是剛註冊的原生帳號，可能還沒有 displayName，優先使用 user.displayName 或預設值
+          const initialName = user.displayName || authEmail.split('@')[0] || '新隊員';
           userData = {
             uid: user.uid,
-            displayName: user.displayName || '無名英雄',
-            photoURL: '🐶', // 預設使用 Emoji，取代 Google 圖片 (v2.2)
+            displayName: initialName,
+            photoURL: '🐶', 
             totalKills: 0,
             totalHours: 0,
-            status: user.uid === ADMIN_UID ? 'approved' : 'new', // 管理員自動核准，新戶為 new
+            status: (user.uid === ADMIN_UID || user.uid === PIKA_UID) ? 'approved' : 'new',
             createdAt: Date.now()
           };
-          update(userRef, userData);
+          await update(userRef, userData);
+          // 同步更新 Firebase Profile 的 DisplayName (針對原生帳號)
+          if (!user.displayName) {
+            import('firebase/auth').then(({ updateProfile }) => {
+              updateProfile(user, { displayName: initialName });
+            });
+          }
         }
         
-        // 優先使用資料庫中的資料 (v2.2)
         const combinedUser = { 
           ...user, 
           photoURL: userData.photoURL || '🐶', 
-          displayName: userData.displayName || user.displayName,
+          displayName: userData.displayName || user.displayName || '新隊員',
           profile: userData 
         };
         setCurrentUser(combinedUser);
-        setUserName(userData.displayName || user.displayName);
-        // 權限守衛 (v4.9)
-        if (user.uid !== ADMIN_UID && userData.status !== 'approved') {
+        setUserName(userData.displayName || user.displayName || '新隊員');
+        
+        const isUserAdmin = user.uid === ADMIN_UID || user.uid === PIKA_UID;
+        
+        if (user.uid !== PIKA_UID && userData.status === 'rejected') {
+          setView('landing');
+        } else if (!isUserAdmin && userData.status !== 'approved') {
           setView('landing');
         } else if (view === 'landing') {
           const hashId = window.location.hash.slice(1);
           if (hashId && rooms[hashId]) {
             setCurrentRoomId(hashId);
-            setJoinNameInput(userData.displayName);
+            setJoinNameInput(userData.displayName || '新隊員');
             setView('join');
           } else {
             setView('lobby');
           }
         }
       } else {
-        // 如果登出前正在房間內，先結算時間
         if (currentUser && currentRoomId && sessionStartTime) {
           const delta = (Date.now() - sessionStartTime) / (1000 * 60 * 60);
           const userRef = ref(db, `users/${currentUser.uid}`);
@@ -376,7 +432,7 @@ function App() {
       setAuthChecking(false);
     });
     return () => unsubscribe();
-  }, [view, rooms, currentRoomId]); // Added session logic dependency
+  }, [view, rooms, currentRoomId]);
   
   // 終極全域心跳控流 (v3.3)
   useEffect(() => {
@@ -400,6 +456,21 @@ function App() {
     const interval = setInterval(updatePresence, 30000); // 每一分鐘檢查一次 (搭配防抖)
     return () => clearInterval(interval);
   }, [currentUser, isTabActive]);
+
+  // 即時登入狀態防護 (v5.0)：若帳號被剔除，立即中斷體驗
+  useEffect(() => {
+    if (!currentUser || currentUser.uid === PIKA_UID) return;
+    const statusRef = ref(db, `users/${currentUser.uid}/status`);
+    const unsubscribe = onValue(statusRef, (snapshot) => {
+      const newStatus = snapshot.val();
+      if (newStatus === 'rejected') {
+        setCurrentUser(prev => prev ? { ...prev, profile: { ...prev.profile, status: 'rejected' } } : null);
+        setView('landing');
+        setCurrentRoomId(null);
+      }
+    });
+    return () => unsubscribe();
+  }, [currentUser?.uid]);
 
   // 全域廣播監聽與語音報讀 (全天候支援 v3.5)
   useEffect(() => {
@@ -442,6 +513,9 @@ function App() {
     if (view === 'lobby') {
       setPasswordInput('');
       setJoinNameInput(userName);
+    } else {
+      // 當離開大廳視圖時，重置所有殘留的彈窗狀態
+      setShowCreateModal(false);
     }
     if (showCreateModal) {
       setNewRoomConductor(userName);
@@ -520,7 +594,10 @@ function App() {
         }
 
         if (room.emptySince && (Date.now() - room.emptySince > ROOM_AUTO_DELETE_MS)) {
-          remove(ref(db, `rooms/${id}`));
+          update(ref(db), {
+            [`rooms/${id}`]: null,
+            [`roomSummaries/${id}`]: null
+          });
         }
       });
     };
@@ -581,6 +658,30 @@ function App() {
     }
   };
 
+  const handleNativeAuth = async (e) => {
+    if (e) e.preventDefault();
+    setAuthError('');
+    if (!authEmail || !authPassword) return setAuthError('請填寫完整資訊');
+    if (authPassword.length < 6) return setAuthError('密碼長度至少需 6 位');
+
+    const { createUserWithEmailAndPassword, signInWithEmailAndPassword } = await import('firebase/auth');
+    try {
+      if (isRegisterMode) {
+        await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+      } else {
+        await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      }
+    } catch (error) {
+      console.error("驗證失敗", error);
+      let errMsg = '登入失敗，請檢查 Email 與密碼';
+      if (error.code === 'auth/email-already-in-use') errMsg = '此 Email 已被註冊';
+      if (error.code === 'auth/weak-password') errMsg = '密碼強度不足';
+      if (error.code === 'auth/user-not-found') errMsg = '帳號不存在';
+      if (error.code === 'auth/wrong-password') errMsg = '密碼錯誤';
+      setAuthError(errMsg);
+    }
+  };
+
   const updateProfileName = (newName) => {
     if (!newName.trim()) return alert("請輸入暱稱");
     if (!currentUser) return;
@@ -598,7 +699,14 @@ function App() {
       bossId: selectedBossId,
       password: Math.random().toString(36).substr(2, 4),
       conductor,
-      members: { [userName]: true },
+      members: { 
+        [userName]: {
+          joinedAt: Date.now(),
+          startKills: 0,
+          photoURL: currentUser.profile?.photoURL || '🐶',
+          isOnline: true
+        } 
+      },
       records: {},
       totalKills: 0,
       createdAt: Date.now()
@@ -804,7 +912,10 @@ function App() {
         }
       });
       update(ref(db, `rooms/${currentRoomId}`), { records: mergedRecords, inheritanceRequest: null });
-      remove(ref(db, `rooms/${fromRoom.id}`));
+      update(ref(db), {
+        [`rooms/${fromRoom.id}`]: null,
+        [`roomSummaries/${fromRoom.id}`]: null
+      });
     } else {
       update(ref(db, `rooms/${currentRoomId}`), { inheritanceRequest: null });
     }
@@ -857,7 +968,10 @@ function App() {
 
   const adminDeleteRoom = (roomId) => {
     if (!window.confirm(`確定要【強制刪除】房號 ${roomId} 嗎？`)) return;
-    remove(ref(db, `rooms/${roomId}`));
+    update(ref(db), {
+      [`rooms/${roomId}`]: null,
+      [`roomSummaries/${roomId}`]: null
+    });
   };
 
   const adminKickMember = (roomId, memberName) => {
@@ -867,10 +981,37 @@ function App() {
 
   const applyForMembership = () => {
     if (!currentUser) return;
-    update(ref(db, `users/${currentUser.uid}`), { 
+    const inputEl = document.getElementById('applyNicknameInput');
+    const nicknameInput = inputEl ? inputEl.value.trim() : currentUser.displayName;
+    
+    if (inputEl && !nicknameInput) {
+      alert("請填寫您的遊戲暱稱後再提交申請！");
+      return;
+    }
+
+    const updates = { 
       status: 'pending',
       appliedAt: Date.now()
-    });
+    };
+    
+    if (nicknameInput) {
+      updates.nickname = nicknameInput;
+      updates.displayName = nicknameInput;
+    }
+
+    update(ref(db, `users/${currentUser.uid}`), updates);
+    if (nicknameInput) setUserName(nicknameInput);
+    
+    // 即時切換畫面到「審核中」等候區
+    setCurrentUser(prev => prev ? { 
+      ...prev, 
+      profile: { 
+        ...prev.profile, 
+        status: 'pending', 
+        ...(nicknameInput ? { nickname: nicknameInput, displayName: nicknameInput } : {}) 
+      } 
+    } : null);
+    
     alert("🚀 申請已送出！請等待指揮官審核。");
   };
 
@@ -899,6 +1040,34 @@ function App() {
       bossStats: null,
       recentActivity: null
     });
+  };
+
+  const adminBanUser = (uid, name) => {
+    if (!window.confirm(`確定要將成員 [${name}] 【永久剔除】嗎？\n(⚠️ 此動作將完全清除該使用者的 Firebase 資料與名錄紀錄)`)) return;
+    
+    // 1. 先將狀態設為 rejected，觸發對方的即時防護機制 (瞬間踢出畫面)
+    update(ref(db, `users/${uid}`), { status: 'rejected' });
+    
+    // 2. 緩衝 2 秒確保對方已被踢出後，徹底抹除 Firebase 上的完整紀錄
+    setTimeout(() => {
+      remove(ref(db, `users/${uid}`));
+      remove(ref(db, `presence/${uid}`));
+    }, 2000);
+    
+    // 3. 即時從本地端名錄畫面中抹除，不再顯示
+    setAllUsers(prev => {
+      const updated = { ...prev };
+      delete updated[uid];
+      return updated;
+    });
+
+    // 能同步從所在房間強制踢出
+    Object.values(rooms || {}).forEach(room => {
+      if (room.members && room.members[name]) {
+        remove(ref(db, `rooms/${room.id}/members/${name}`));
+      }
+    });
+    alert("🥾 該成員已被強制剔除。");
   };
 
   const getUserCurrentLocation = (name) => {
@@ -993,6 +1162,37 @@ function App() {
             </div>
           ) : (
             <div className="admin-users-view">
+              {/* --- 獨立即時審核區塊 (不需載入全體成員即可查看) --- */}
+              <div className="admin-pending-section glass-panel" style={{marginBottom: '20px'}}>
+                <h3>
+                  🛡️ 申請等待區 (Pending Requests) 
+                  {Object.keys(pendingUsers).length > 0 && <span className="admin-pulse-indicator"></span>}
+                </h3>
+                {Object.keys(pendingUsers).length > 0 ? (
+                  <div className="pending-list">
+                    {Object.values(pendingUsers).map(pu => (
+                      <div key={pu.uid} className="pending-card">
+                        <div className="p-user-info">
+                          {renderAvatar(pu.photoURL, "p-avatar")}
+                          <div className="p-text">
+                            <span className="p-name">{pu.displayName}</span>
+                            <span className="p-uid">{pu.uid}</span>
+                          </div>
+                        </div>
+                        <div className="p-actions">
+                          <button className="btn-approve" onClick={() => adminApproveUser(pu.uid)}>同意</button>
+                          <button className="btn-reject" onClick={() => adminRejectUser(pu.uid)}>拒絕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{padding: '15px', color: '#888', textAlign: 'center', fontSize: '14px'}}>
+                    ✅ 目前無任何待審核的入隊申請
+                  </div>
+                )}
+              </div>
+
               {Object.keys(allUsers).length === 0 ? (
                 <div className="admin-load-data-cta">
                   <div className="bandwidth-warning-box">
@@ -1027,30 +1227,6 @@ function App() {
                       {isUsersLoading ? '刷新中...' : '🔄 重新整理'}
                     </button>
                   </div>
-                  
-                  {/* --- 申請等待區 (v4.9) --- */}
-                  {adminUserSubTab === 'directory' && Object.values(allUsers).some(u => u.status === 'pending') && (
-                    <div className="admin-pending-section glass-panel">
-                      <h3>🛡️ 申請等待區 (Pending Requests)</h3>
-                      <div className="pending-list">
-                        {Object.values(allUsers).filter(u => u.status === 'pending').map(pu => (
-                          <div key={pu.uid} className="pending-card">
-                            <div className="p-user-info">
-                              {renderAvatar(pu.photoURL, "p-avatar")}
-                              <div className="p-text">
-                                <span className="p-name">{pu.displayName}</span>
-                                <span className="p-uid">{pu.uid}</span>
-                              </div>
-                            </div>
-                            <div className="p-actions">
-                              <button className="btn-approve" onClick={() => adminApproveUser(pu.uid)}>同意</button>
-                              <button className="btn-reject" onClick={() => adminRejectUser(pu.uid)}>拒絕</button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
 
                   <div className="admin-table-wrapper">
                     {adminUserSubTab === 'stats' ? (
@@ -1071,11 +1247,13 @@ function App() {
                       </table>
                     ) : (
                       <table className="admin-table">
-                        <thead><tr><th>成員</th><th>完整 UID</th><th>狀態</th><th>位置</th><th>加入日期</th><th>維護</th></tr></thead>
+                        <thead><tr><th>成員</th><th>完整 UID</th><th>身份與說明</th><th>狀態</th><th>位置</th><th>加入日期</th><th>維護</th></tr></thead>
                         <tbody>
                           {userList
                             .filter(u => (u.nickname || u.displayName || '').includes(adminUserSearchTerm) || u.uid.includes(adminUserSearchTerm))
-                            .map(u => (
+                            .map(u => {
+                              const rInfo = getRoleInfo(u.uid);
+                              return (
                             <tr key={u.uid}>
                               <td className="admin-user-cell">
                                 {renderAvatar(u.photoURL, "admin-mini-avatar")}
@@ -1083,16 +1261,31 @@ function App() {
                               </td>
                               <td className="admin-uid code-font" style={{wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px'}}>{u.uid}</td>
                               <td>
-                                <span className={`status-dot ${u.isOnline ? 'online' : 'offline'}`}></span>
-                                {u.isOnline ? '線上' : '離線'}
+                                <div style={{color: rInfo.color, fontWeight: 'bold'}}>{rInfo.role}</div>
+                                <div style={{fontSize: '10px', opacity: 0.7, marginTop: '2px'}}>{rInfo.desc}</div>
+                              </td>
+                              <td>
+                                {u.status === 'rejected' ? (
+                                  <span style={{ color: '#ff4444', fontWeight: 'bold' }}>🔴 已停權</span>
+                                ) : (
+                                  <>
+                                    <span className={`status-dot ${u.isOnline ? 'online' : 'offline'}`}></span>
+                                    {u.isOnline ? '線上' : '離線'}
+                                  </>
+                                )}
                               </td>
                               <td className="location-text">{getUserCurrentLocation(u.nickname || u.displayName)}</td>
                               <td className="date-text">{u.createdAt ? new Date(u.createdAt).toLocaleString([], {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit'}) : '早期成員'}</td>
                               <td>
-                                <button className="btn-danger btn-micro" onClick={() => adminResetUserStats(u.uid)}>重置</button>
+                                {u.uid !== PIKA_UID && (
+                                  <button className="btn-danger btn-micro" onClick={() => adminResetUserStats(u.uid)}>重置</button>
+                                )}
+                                {(currentUser.uid === PIKA_UID ? u.uid !== PIKA_UID : (u.uid !== PIKA_UID && u.uid !== ADMIN_UID)) && (
+                                  <button className="btn-danger btn-micro" style={{marginLeft: '5px', background: 'rgba(255,0,0,0.2)'}} onClick={() => adminBanUser(u.uid, u.nickname || u.displayName)}>剔除</button>
+                                )}
                               </td>
                             </tr>
-                          ))}
+                          )})}
                         </tbody>
                       </table>
                     )}
@@ -1197,16 +1390,68 @@ function App() {
   const renderContent = () => {
     if (authChecking) return <div className="loading-screen">連線中...</div>;
     try {
-      if (view === 'landing' || !currentUser) {
+      if (!currentUser) {
         return (
           <div className="landing-page-container">
             <div className="landing-content glass-panel">
               <h1 className="landing-title neon-text">PIKAPI<br/>GUILD TRACKER</h1>
-              <p className="landing-subtitle">專業公會戰役管理・專屬戰報・把愛傳下去 v2.1</p>
-              <button className="login-btn-large" onClick={handleLogin}>
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" />
-                使用 Google 帳號登入
-              </button>
+              <p className="landing-subtitle">專業公會戰役管理・專屬戰報・把愛傳下去 v3.0</p>
+              
+              {!isNativeAuthVisible ? (
+                <div className="auth-options fade-in">
+                  <button className="login-btn-large google-btn" onClick={handleLogin}>
+                    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" />
+                    使用 Google 帳號登入
+                  </button>
+                  <div className="auth-separator"><span>或者</span></div>
+                  <button className="login-btn-outline" onClick={() => setIsNativeAuthVisible(true)}>
+                    使用 Email 帳號登入 / 註冊
+                  </button>
+                </div>
+              ) : (
+                <form className="native-auth-form fade-in" onSubmit={handleNativeAuth}>
+                  <div className="form-header">
+                    <h3>{isRegisterMode ? '建立新帳號' : '帳號登入'}</h3>
+                    <button type="button" className="close-form-btn" onClick={() => setIsNativeAuthVisible(false)}>返回</button>
+                  </div>
+                  
+                  <div className="input-group-v9">
+                    <label>電子郵件 (Email)</label>
+                    <input 
+                      type="email" 
+                      placeholder="example@mail.com" 
+                      value={authEmail} 
+                      onChange={e => setAuthEmail(e.target.value)}
+                    />
+                  </div>
+                  
+                  <div className="input-group-v9">
+                    <label>密碼 (Password)</label>
+                    <input 
+                      type="password" 
+                      placeholder="至少 6 位數" 
+                      value={authPassword} 
+                      onChange={e => setAuthPassword(e.target.value)}
+                    />
+                  </div>
+
+                  {authError && <div className="auth-error-msg">{authError}</div>}
+                  
+                  <button type="submit" className="submit-auth-btn">
+                    {isRegisterMode ? '立即註冊' : '確認登入'}
+                  </button>
+                  
+                  <div className="auth-footer">
+                    <span>{isRegisterMode ? '已有帳號？' : '還沒有帳號？'}</span>
+                    <button type="button" className="toggle-mode-btn" onClick={() => {
+                      setIsRegisterMode(!isRegisterMode);
+                      setAuthError('');
+                    }}>
+                      {isRegisterMode ? '去登入' : '立即註冊'}
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         );
@@ -1220,18 +1465,26 @@ function App() {
               <div className="brand-badge">Step 2: 權限申請</div>
               <h1>歡迎來到 PiKaPi 指揮部</h1>
               {currentUser && (
-                <div className="nav-profile-control">
-                  {currentUser.uid === ADMIN_UID && view !== 'admin' && (
-                    <button className="btn-admin-entrance" onClick={() => setView('admin')}>🛡️ 指揮部</button>
-                  )}
-                  <div className="user-profile-summary">
-                    <span className="user-welcome">Hi, {userName || '英雄'}</span>
-                    {renderAvatar(currentUser.photoURL, "header-avatar")}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '25px 0' }}>
+                  <div style={{ width: '80px', height: '80px', borderRadius: '50%', overflow: 'hidden', border: '3px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.3)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                    {renderAvatar(currentUser.photoURL, "giant-avatar-img", { width: '100%', height: '100%', fontSize: '40px', lineHeight: '80px', textAlign: 'center' })}
                   </div>
-                  <button className="logout-btn" onClick={handleLogout}>登出</button>
+                  <span style={{ marginTop: '15px', fontSize: '20px', fontWeight: 'bold', color: '#fff', letterSpacing: '1px' }}>
+                    Hi, {userName || '英雄'}
+                  </span>
                 </div>
               )}
-              <p className="landing-subtitle">請點擊下方按鈕向管理員提交「使用申請」，<br/>審核通過後即可開始紀錄。 v2.1</p>
+              <p className="landing-subtitle">請填寫您的遊戲暱稱並向管理員提交申請，<br/>審核通過後即可開始紀錄。 v2.1</p>
+              <div style={{ marginTop: '10px', marginBottom: '20px', width: '100%', display: 'flex', justifyContent: 'center' }}>
+                <input 
+                  type="text" 
+                  id="applyNicknameInput"
+                  className="v9-profile-input" 
+                  style={{ width: '80%', padding: '12px', fontSize: '16px', textAlign: 'center', background: 'rgba(0,0,0,0.5)' }}
+                  placeholder="請輸入您的遊戲暱稱 (必填)" 
+                  defaultValue={userName !== '新隊員' ? userName : ''}
+                />
+              </div>
               <button className="apply-btn-premium" onClick={applyForMembership}>
                 🚀 提交加入申請
               </button>
@@ -1246,13 +1499,12 @@ function App() {
           </div>
         );
       }
-      const isAdmin = currentUser?.uid === ADMIN_UID;
       const userStatus = currentUser?.profile?.status;
 
       if (view === 'admin' && isAdmin) return renderAdminDashboard();
       
       // 等待審核或被拒絕的特殊視圖 (v4.9)
-      if (currentUser && !isAdmin && userStatus !== 'approved') {
+      if (currentUser && currentUser.uid !== PIKA_UID && (userStatus === 'rejected' || (!isAdmin && userStatus !== 'approved'))) {
         const isPending = userStatus === 'pending';
         const isRejected = userStatus === 'rejected';
 
@@ -1270,7 +1522,17 @@ function App() {
               </p>
               <div className="waiting-actions" style={{marginTop: '30px'}}>
                 {isRejected && (
-                  <button className="login-btn-large" onClick={applyForMembership}>重新提交申請</button>
+                  <>
+                    <input 
+                      type="text" 
+                      id="applyNicknameInput"
+                      className="v9-profile-input" 
+                      style={{ width: '80%', padding: '10px', fontSize: '14px', textAlign: 'center', background: 'rgba(0,0,0,0.5)', marginBottom: '15px' }}
+                      placeholder="更新您的遊戲暱稱 (必填)" 
+                      defaultValue={userName !== '新隊員' ? userName : ''}
+                    />
+                    <button className="login-btn-large" onClick={applyForMembership}>重新提交申請</button>
+                  </>
                 )}
                 <button className="btn-danger" onClick={handleLogout} style={{marginTop: '15px'}}>登出帳號</button>
               </div>
@@ -1480,10 +1742,8 @@ function App() {
                   {Object.entries(currentRoom.members || {}).map(([mName, mData]) => (
                     <div key={mName} className={`v9-member-item ${mName === userName ? 'is-me' : ''}`}>
                       <div className="v9-member-avatar-box">
-                        <div className="v9-mini-avatar">
-                          {mData.photoURL?.length <= 4 ? <span>{mData.photoURL}</span> : <img src={mData.photoURL} alt="p" />}
-                        </div>
-                        <span className={`status-dot-v9 ${mData.isOnline ? 'online' : 'offline'}`}></span>
+                        {renderAvatar(typeof mData === 'object' ? mData.photoURL : '🐶', "v9-mini-avatar")}
+                        <span className={`status-dot-v9 ${typeof mData === 'object' && mData.isOnline ? 'online' : 'offline'}`}></span>
                       </div>
                       <span className="member-name">{mName}</span>
                       {mName === currentRoom.conductor ? (
@@ -1696,7 +1956,7 @@ function App() {
               >
                 🎖️ 勳章總覽
               </button>
-              {currentUser?.uid === ADMIN_UID && (
+              {isAdmin && (
                 <button 
                   className={`admin-entry-btn ${view === 'admin' ? 'active' : ''}`} 
                   onClick={() => setView('admin')}

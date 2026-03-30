@@ -2501,3 +2501,20 @@ body {
   .hall-title h1 { font-size: 1.8rem; }
   .medal-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* 審核等待區提示動畫 v4.9 */
+.admin-pulse-indicator {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  background-color: var(--danger-color, #ff4d4d);
+  border-radius: 50%;
+  margin-left: 10px;
+  animation: pendingPulse 1.5s infinite;
+}
+
+@keyframes pendingPulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 77, 77, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(255, 77, 77, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 77, 77, 0); }
+}
