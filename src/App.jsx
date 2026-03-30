@@ -6,7 +6,17 @@ import html2canvas from 'html2canvas';
 import './membership.css';
 
 // 6 個萌系動物預設選項 (v4.8)
-const DEFAULT_ANIMALS = ['🐶', '🐱', '🦊', '🐼', '🐨', '🐯'];
+// 預設頭像 Emoji 清單 (v2.2)
+const DEFAULT_ANIMALS = [
+  '🐶', '🐱', '🦊', '🐼', '🐨', '🐯', '🐸', '🐰',
+  '🐧', '🐻', '🐹', '🐭', '🦁', '🐮', '🦒', '🐘',
+  '🦄', '🐲', '🦖', '🐢', '🐷', '🐔', '🐤', '🐦',
+  '🐙', '🐒', '🦍', '🦝', '🐴', '🐑', '🐿️', '🦉',
+  '🐝', '🦋', '🐞', '🌻', '🍀', '🌈', '🍦', '🥨',
+  '🍭', '🧁', '🍪', '🍩', '🍫', '⚔️', '🛡️', '🏹',
+  '⚖️', '💎', '👑', '🏰', '🔥', '❄️', '⚡', '🎈',
+  '🎁', '🎀', '🧸', '🪁', '🎮', '🎨'
+];
 
 // BOSS 定義
 const BOSSES = {
@@ -73,7 +83,7 @@ function App() {
   const [adminMenu, setAdminMenu] = useState(null); // { rid, m }
   const [showAvatarModal, setShowAvatarModal] = useState(false); // 預設頭像彈窗
   const [selectedEmoji, setSelectedEmoji] = useState(null); // 選中的 Emoji
-  const avatarInputRef = useRef(null); // 隱藏的上傳輸入框
+  const [copySuccess, setCopySuccess] = useState(false); // 複製密碼成功狀態
 
   const userHasSeenSelfInRoom = useRef(false);
 
@@ -165,7 +175,7 @@ function App() {
           userData = {
             uid: user.uid,
             displayName: user.displayName || '無名英雄',
-            photoURL: user.photoURL,
+            photoURL: '🐶', // 預設使用 Emoji，取代 Google 圖片 (v2.2)
             totalKills: 0,
             totalHours: 0,
             status: user.uid === ADMIN_UID ? 'approved' : 'new', // 管理員自動核准，新戶為 new
@@ -174,8 +184,15 @@ function App() {
           update(userRef, userData);
         }
         
-        setCurrentUser({ ...user, profile: userData });
-        setUserName(userData.displayName);
+        // 優先使用資料庫中的資料 (v2.2)
+        const combinedUser = { 
+          ...user, 
+          photoURL: userData.photoURL || user.photoURL, 
+          displayName: userData.displayName || user.displayName,
+          profile: userData 
+        };
+        setCurrentUser(combinedUser);
+        setUserName(userData.displayName || user.displayName);
         
         // 權限守衛 (v4.9)
         if (user.uid !== ADMIN_UID && userData.status !== 'approved') {
@@ -234,19 +251,7 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // 檢查是否被踢出房間
-  useEffect(() => {
-    if (currentRoomId && rooms[currentRoomId] && userName) {
-      const members = rooms[currentRoomId].members || {};
-      if (!members[userName]) {
-        // 您被踢出了
-        setCurrentRoomId(null);
-        setView('lobby');
-        setSessionStartTime(null);
-        alert("您已被管理員移出房間");
-      }
-    }
-  }, [rooms, currentRoomId, userName]);
+  // 檢查是否被踢出房間 (已整合至下方 v2.3 機制，此處移除以避免誤判)
 
   useEffect(() => {
     if (view === 'lobby' && userName) {
@@ -302,20 +307,7 @@ function App() {
     }
   }, [rooms, currentRoomId, userName, view]);
 
-  // 更新個人頭像邏輯 (v4.8)
-  const handleAvatarUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.size > 500000) return alert("圖片太大囉 (限 500KB 以內)");
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64 = event.target.result;
-      updateProfileAvatar(base64);
-    };
-    reader.readAsDataURL(file);
-  };
-
+  // 已廢除個人圖片上傳 (v2.2)
   const updateProfileAvatar = (newUrl) => {
     if (!currentUser) return;
     update(ref(db, `users/${currentUser.uid}`), { photoURL: newUrl });
@@ -430,9 +422,9 @@ function App() {
   };
 
   const createRoom = () => {
-    if (!newRoomConductor.trim()) return alert("請輸入車長名稱");
+    const conductor = userName; // 直接使用系統名稱 (v2.2)
+    if (!conductor.trim()) return alert("請至 Profile 設定您的名稱");
     const id = Math.random().toString(36).substr(2, 6).toUpperCase();
-    const conductor = userName;
     const newRoom = {
       id,
       bossId: selectedBossId,
@@ -473,7 +465,12 @@ function App() {
     if (room.password !== passwordInput) return alert("密碼錯誤");
 
     update(ref(db, `rooms/${currentRoomId}/members`), {
-      [joinNameInput.trim()]: { joinedAt: Date.now(), startKills: room.totalKills || 0 }
+      [joinNameInput.trim()]: { 
+        joinedAt: Date.now(), 
+        startKills: room.totalKills || 0,
+        photoURL: currentUser.profile?.photoURL || '🐶', // 同步頭像 (v2.3)
+        isOnline: true
+      }
     });
     
     setUserName(joinNameInput.trim());
@@ -525,7 +522,16 @@ function App() {
 
   const removeMember = (targetName) => {
     if (currentRoom.conductor !== userName) return;
-    remove(ref(db, `rooms/${currentRoomId}/members/${targetName}`));
+    if (confirm(`確定要將 ${targetName} 請下車嗎？`)) {
+      remove(ref(db, `rooms/${currentRoomId}/members/${targetName}`));
+    }
+  };
+
+  const transferConductor = (targetName) => {
+    if (currentRoom.conductor !== userName) return;
+    if (confirm(`確定要將車長權限移交給 ${targetName} 嗎？`)) {
+      update(ref(db, `rooms/${currentRoomId}`), { conductor: targetName });
+    }
   };
 
   const toggleWildBossExplore = () => {
@@ -541,7 +547,11 @@ function App() {
   };
 
   const handleStationed = (chKey) => {
-    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { occupant: userName });
+    const records = currentRoom.records || {};
+    const isOccupiedByMe = records[chKey]?.occupant === userName;
+    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
+      occupant: isOccupiedByMe ? null : userName // 點擊第二次解除佔位 (v2.3)
+    });
   };
 
   const addRecord = (manualChKey) => {
@@ -991,26 +1001,25 @@ function App() {
           <div className="profile-page-container">
             <div className="profile-card glass-panel">
               <div className="profile-header">
-                <div className="avatar-wrapper" onClick={() => avatarInputRef.current.click()}>
-                  <img src={currentUser.photoURL || 'https://via.placeholder.com/150'} alt="Avatar" className="profile-avatar-large" />
+                <div className="avatar-wrapper" onClick={() => setShowAvatarModal(true)}>
+                  <div className="profile-avatar-large">
+                    {currentUser.profile?.photoURL?.length <= 4 ? (
+                      <span className="avatar-emoji-large">{currentUser.profile.photoURL}</span>
+                    ) : (
+                      <img src={currentUser.profile?.photoURL || 'https://via.placeholder.com/150'} alt="Avatar" />
+                    )}
+                  </div>
                   <div className="rank-badge-overlay">{rank.badge}</div>
                   <div className="avatar-edit-overlay">更換</div>
-                  <input 
-                    type="file" 
-                    ref={avatarInputRef} 
-                    style={{display: 'none'}} 
-                    accept="image/*" 
-                    onChange={handleAvatarUpload}
-                  />
                 </div>
                 <div className="profile-info">
                   <p className="profile-rank" style={{ color: rank.color }}>{rank.title}</p>
                   <h2>{userName}</h2>
                   <p className="profile-uid" style={{fontSize: '10px', opacity: 0.5}}>{currentUser.uid}</p>
                   <div className="profile-edit-name">
-                    <input type="text" defaultValue={userName} id="profileNameInput" placeholder="暱稱" />
-                    <button onClick={() => updateProfileName(document.getElementById('profileNameInput').value)}>更新</button>
-                    <button className="btn-secondary-glass" onClick={() => setShowAvatarModal(true)}>使用預設頭像</button>
+                    <input type="text" className="v9-profile-input" defaultValue={userName} id="profileNameInput" placeholder="暱稱" />
+                    <button className="v9-btn-primary" onClick={() => updateProfileName(document.getElementById('profileNameInput').value)}>更新名稱</button>
+                    <button className="v9-btn-secondary" onClick={() => setShowAvatarModal(true)}>更換頭像</button>
                   </div>
                 </div>
               </div>
@@ -1062,7 +1071,7 @@ function App() {
                 </div>
               </div>
               
-              <button className="back-lobby-btn" onClick={backToLobby}>回大廳</button>
+              <button className="v9-btn-secondary back-lobby-btn" onClick={backToLobby}>返回大廳中心</button>
             </div>
           </div>
         );
@@ -1111,7 +1120,10 @@ function App() {
               <div className="modal-overlay">
                 <div className="modal">
                   <h2>創建房間 - {BOSSES[selectedBossId].name}</h2>
-                  <input type="text" value={newRoomConductor} onChange={(e) => setNewRoomConductor(e.target.value)} placeholder="車長名稱" />
+                  <div className="v9-readonly-input">
+                    <span className="label">車長名稱 :</span>
+                    <span className="value">{userName}</span>
+                  </div>
                   <div className="modal-btns">
                     <button onClick={createRoom}>確定</button>
                     <button onClick={() => setShowCreateModal(false)} className="cancel-btn">取消</button>
@@ -1164,11 +1176,25 @@ function App() {
               <div className="hud-card">
                 <span className="hud-label">車內成員 {members.length}/4</span>
                 <div className="v9-members-list">
-                  {members.map(m => (
-                    <div key={m} className={`v9-member-item ${m === userName ? 'is-me' : ''}`}>
-                      <span className="member-icon">🚗</span>
-                      <span className="member-name">{m}</span>
-                      {m === currentRoom.conductor && <span className="conductor-dot">●</span>}
+                  {Object.entries(currentRoom.members || {}).map(([mName, mData]) => (
+                    <div key={mName} className={`v9-member-item ${mName === userName ? 'is-me' : ''}`}>
+                      <div className="v9-member-avatar-box">
+                        <div className="v9-mini-avatar">
+                          {mData.photoURL?.length <= 4 ? <span>{mData.photoURL}</span> : <img src={mData.photoURL} alt="p" />}
+                        </div>
+                        <span className={`status-dot-v9 ${mData.isOnline ? 'online' : 'offline'}`}></span>
+                      </div>
+                      <span className="member-name">{mName}</span>
+                      {mName === currentRoom.conductor ? (
+                        <span className="v9-conductor-badge">👑 車長</span>
+                      ) : (
+                        isConductor && (
+                          <div className="v9-member-ctx-actions">
+                            <button className="v9-ctx-btn-gold" onClick={() => transferConductor(mName)} title="移交車長">👑</button>
+                            <button className="v9-ctx-btn-red" onClick={() => removeMember(mName)} title="請下車">❌</button>
+                          </div>
+                        )
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1240,6 +1266,16 @@ function App() {
               </header>
 
               <div className="main-glass-panel">
+                {/* --- Wild Boss Exploration Banner (v2.3) --- */}
+                {currentRoom.wildBossExplore && Object.keys(currentRoom.wildBossExplore || {}).length > 0 && (
+                  <div className="v9-wild-banner fade-in">
+                    <span className="wild-icon">🍖</span>
+                    <span className="wild-text">
+                      <b>戰術通報 :</b> {Object.keys(currentRoom.wildBossExplore).join(', ')} 正在各頻道打野中...
+                    </span>
+                  </div>
+                )}
+
                 <div className="kill-input-v25">
                   <input 
                     type="text" 
@@ -1255,7 +1291,12 @@ function App() {
                   <div className="v25-table">
                     <div id="kill-report-card" className="v25-table-container">
                       <div className="v25-table-header">
-                        <span>頻道</span><span>野王名稱</span><span>倒數計時</span><span>目前狀態</span><span>回報者</span><span style={{textAlign:'right'}}>頻道操作</span>
+                        <span>頻道</span>
+                        <span>野王名稱</span>
+                        <span>倒數計時</span>
+                        <span>目前狀態</span>
+                        <span>回報者</span>
+                        <span style={{textAlign:'right'}}>頻道操作</span>
                       </div>
 
                       {Object.keys(records).length === 0 ? (
@@ -1267,11 +1308,13 @@ function App() {
                           const occupant = records[ch].occupant || '';
                           
                           return (
-                            <div key={ch} className="v25-row">
+                            <div key={ch} className={`v25-row ${isReady ? 'is-ready' : ''}`}>
                               {/* 1. 頻道與佔位 */}
-                              <div className="v4-ch-group">
+                              <div className="v4-ch-group-v9">
                                 <span className="v5-ch-id">CH {ch.replace('CH','').trim()}</span>
-                                {occupant && <span className="v9-occupant-tag">📍 {occupant}</span>}
+                                <div className="v9-occupant-container">
+                                  {occupant && <span className="v9-occupant-tag-v9">📍 {occupant}</span>}
+                                </div>
                               </div>
 
                               {/* 2. 野王名稱 */}
@@ -1355,7 +1398,13 @@ function App() {
                 </button>
               )}
               <span className="user-greeting">Hi, {userName}</span>
-              <img src={currentUser.photoURL || 'https://via.placeholder.com/40'} alt="avatar" className="header-avatar" onClick={() => setView('profile')} />
+              <div className="header-avatar-v9" onClick={() => setView('profile')}>
+                {currentUser.profile?.photoURL?.length <= 4 ? (
+                  <span className="avatar-emoji-header">{currentUser.profile.photoURL}</span>
+                ) : (
+                  <img src={currentUser.profile?.photoURL || 'https://via.placeholder.com/40'} alt="avatar" />
+                )}
+              </div>
               <button className="btn-danger logout-btn" onClick={handleLogout}>登出</button>
             </div>
           )}
@@ -1388,7 +1437,11 @@ function App() {
       {showAvatarModal && (
         <div className="modal-overlay avatar-modal" onClick={() => setShowAvatarModal(false)}>
           <div className="modal-content glass-panel" onClick={e => e.stopPropagation()}>
-            <h2 style={{marginBottom: '25px'}}>選擇預設頭像</h2>
+            <div className="v9-modal-header">
+              <h2>選擇頭像</h2>
+              <p>挑選一個可愛符號</p>
+            </div>
+
             <div className="emoji-selection-grid">
               {DEFAULT_ANIMALS.map(emoji => (
                 <div 
@@ -1400,8 +1453,12 @@ function App() {
                 </div>
               ))}
             </div>
-            <div className="modal-btns" style={{marginTop: '30px'}}>
+
+            <div className="v9-modal-divider"></div>
+
+            <div className="modal-btns">
               <button 
+                className="v9-btn-confirm"
                 onClick={() => {
                   if (selectedEmoji) {
                     updateProfileAvatar(selectedEmoji);
@@ -1410,19 +1467,110 @@ function App() {
                 }}
                 disabled={!selectedEmoji}
               >
-                確定
+                確認更換
               </button>
-              <button onClick={() => setShowAvatarModal(false)} className="cancel-btn">取消</button>
+              <button onClick={() => setShowAvatarModal(false)} className="v9-btn-cancel">取消</button>
             </div>
           </div>
         </div>
       )}
       {showLeaveModal && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <h2>確定下車？</h2>
-            <button onClick={confirmLeave}>確定</button>
-            <button onClick={() => setShowLeaveModal(false)} className="cancel-btn">取消</button>
+        <div className="modal-overlay leave-modal" onClick={() => setShowLeaveModal(false)}>
+          <div className="modal-content v9-card-modal" onClick={e => e.stopPropagation()}>
+            <div className="v9-modal-header centered">
+              <h2 className="text-gold">【下車前資訊提醒】</h2>
+              <p>請確認是否記錄好相關資訊：</p>
+            </div>
+            
+            <div className="v9-info-cards">
+              <div className="v9-info-card">
+                <label>您的名稱：</label>
+                <div className="v9-card-val text-gold">{userName}</div>
+              </div>
+
+              <div className="v9-info-card">
+                <label>房間密碼：</label>
+                <div className="v9-card-pwd-row">
+                  <div className="v9-card-val text-gold mono">{rooms[currentRoomId]?.password}</div>
+                  <button className="v9-copy-btn-mini" onClick={() => {
+                    navigator.clipboard.writeText(rooms[currentRoomId]?.password);
+                    setCopySuccess(true);
+                    setTimeout(() => setCopySuccess(false), 2000);
+                  }}>
+                    {copySuccess ? '已複製' : '複製'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {Object.keys(rooms[currentRoomId]?.members || {}).length === 1 && (
+              <div className="v9-warning-box">
+                <span>⚠️ 注意：您是最後一位成員，下車後該房間將成為<span className="text-red">無人房</span>！下一位進入的玩家將繼承成為車長！</span>
+              </div>
+            )}
+
+            <div className="modal-btns stacked">
+              <button className="v9-btn-confirm btn-v9-white" onClick={confirmLeave}>確認紀錄並下車</button>
+              <button className="v9-btn-cancel-dark" onClick={() => setShowLeaveModal(false)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showVoiceSettings && (
+        <div className="modal-overlay voice-modal" onClick={() => setShowVoiceSettings(false)}>
+          <div className="modal-content v9-voice-card" onClick={e => e.stopPropagation()}>
+            <button className="v9-modal-close" onClick={() => setShowVoiceSettings(false)}>×</button>
+            
+            <div className="v9-modal-header">
+              <h2 className="text-gold">⚙️ 個人化語音設定</h2>
+            </div>
+            
+            <div className="voice-settings-body">
+              <div className="voice-setting-item">
+                <label>選擇語音庫</label>
+                <div className="v9-custom-select-wrapper">
+                  <select 
+                    value={voiceSettings.voiceURI} 
+                    onChange={e => setVoiceSettings(prev => ({ ...prev, voiceURI: e.target.value }))}
+                  >
+                    <option value="">預設系統語音</option>
+                    {availableVoices.map(v => (
+                      <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="voice-setting-item">
+                <label>語速 (Rate)</label>
+                <div className="v9-slider-row">
+                  <input 
+                    type="range" min="0.5" max="2" step="0.1" 
+                    className="v9-gold-slider"
+                    value={voiceSettings.rate} 
+                    onChange={e => setVoiceSettings(prev => ({ ...prev, rate: parseFloat(e.target.value) }))} 
+                  />
+                  <span className="v9-slider-val">{voiceSettings.rate}</span>
+                </div>
+              </div>
+
+              <div className="voice-setting-item">
+                <label>音調 (Pitch)</label>
+                <div className="v9-slider-row">
+                  <input 
+                    type="range" min="0.5" max="2" step="0.1" 
+                    className="v9-gold-slider"
+                    value={voiceSettings.pitch} 
+                    onChange={e => setVoiceSettings(prev => ({ ...prev, pitch: parseFloat(e.target.value) }))} 
+                  />
+                  <span className="v9-slider-val">{voiceSettings.pitch}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="v9-modal-footer">
+              <p>* 這些設定僅儲存在您的瀏覽器，不影響他人。</p>
+            </div>
           </div>
         </div>
       )}
