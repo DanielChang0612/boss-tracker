@@ -33,20 +33,67 @@ const BOSSES = {
 
 const ROOM_AUTO_DELETE_MS = 2 * 60 * 60 * 1000; // 2 小時
 const ADMIN_UID = 'dVqiQcpgNqR5xgHZbeGjsncgHeN2'; // 管理員專屬完整的 UID
+// --- 稱號系統配置 (v4.1 榮譽升級) ---
+const RANKS_CONFIG = [
+  { title: '初心者', badge: '🌱', color: '#ffffff', minKills: 0, scale: 100, desc: '踏入戰場的新生力量，一切的起點。' },
+  { title: '見習生', badge: '🐤', color: '#81c784', minKills: 500, scale: 200, desc: '開始掌握節奏，在森林中磨練自我。' },
+  { title: '冒險者', badge: '⛺', color: '#4caf50', minKills: 1500, scale: 300, desc: '渴望未知的戰役，橫跨大陸的行者。' },
+  { title: '討伐者', badge: '🏹', color: '#26a69a', minKills: 3000, scale: 400, desc: '以獵殺為生，名號在頻道間悄然傳開。' },
+  { title: '守護者', badge: '🛡️', color: '#4fc3f7', minKills: 5000, scale: 600, desc: '盾牌後的堅毅目光，守護公會榮耀。' },
+  { title: '精英排長', badge: '⭐', color: '#2196f3', minKills: 10000, scale: 1000, desc: '戰術執行者，帶領隊員精準打擊。' },
+  { title: '鋼鐵騎士', badge: '⚔️', color: '#7e57c2', minKills: 20000, scale: 2000, desc: '意志如鋼鐵般不屈，衝鋒在最前線。' },
+  { title: '榮耀男爵', badge: '🏅', color: '#ab47bc', minKills: 40000, scale: 4000, desc: '獲得初步貴族頭銜，展現統帥潛力。' },
+  { title: '尊貴子爵', badge: '🎩', color: '#ce93d8', minKills: 100000, scale: 10000, desc: '優雅與力量並存，戰功卓越的貴族。' },
+  { title: '望族伯爵', badge: '🤵', color: '#f06292', minKills: 200000, scale: 20000, desc: '家族名望如日中天，累積驚人擊殺。' },
+  { title: '世襲侯爵', badge: '💂', color: '#f44336', minKills: 350000, scale: 30000, desc: '打王成為血脈本能，戰無不勝的將領。' },
+  { title: '巔峰公爵', badge: '🎖️', color: '#ff7043', minKills: 500000, scale: 50000, desc: '位居權力巔峰，全頻道的敬畏對象。' },
+  { title: '領地之主', badge: '🏯', color: '#ffb74d', minKills: 750000, scale: 50000, desc: '每一吋地圖都是你絕對掌控的狩獵場。' },
+  { title: '大領主', badge: '🏰', color: '#ffc107', minKills: 1000000, scale: 100000, desc: '領主之中的領袖，權威不可撼動。' },
+  { title: '聖騎士團長', badge: '🔱', color: '#fff176', minKills: 2000000, scale: 200000, desc: '神聖戰士首領，光輝籠罩整個公會。' },
+  { title: '封號鬥羅', badge: '🌀', color: '#80deea', minKills: 4000000, scale: 400000, desc: '力量覺醒至極致，獲得專屬傳奇封號。' },
+  { title: '滅世戰神', badge: '🔥', color: '#ff1744', minKills: 6000000, scale: 400000, desc: '降臨時天地變色，野王皆為塵土。' },
+  { title: '傳奇至尊', badge: '✨', color: '#eceff1', minKills: 8000000, scale: 400000, desc: '史詩中的不朽傳說，榮耀名留青史。' },
+  { title: '超越者', badge: '⚛️', color: '#ea80fc', minKills: 10000000, scale: 500000, desc: '超脫凡塵境界，掌握虛空的戰鬥法則。' },
+  { title: '虛空至尊', badge: '👑', color: '#1a1a1a', minKills: 15000000, scale: 1000000, desc: '站立於頂點的王者，虛空的絕對主宰。' }
+];
 
-// 稱號與等級定義
-const getRankInfo = (kills = 0, hours = 0) => {
-  if (kills >= 1000000) return { title: '虛空至尊', level: 100, color: '#ff00ff' };
-  if (kills >= 500000) return { title: '蒼穹戰神', level: 90, color: '#ff4400' };
-  if (kills >= 100000) return { title: '滅世領主', level: 80, color: '#ff8800' };
-  if (kills >= 50000) return { title: '大領主', level: 70, color: '#ffaa00' };
-  if (kills >= 20000) return { title: '公爵', level: 60, color: '#ffff00' };
-  if (kills >= 10000) return { title: '侯爵', level: 50, color: '#00ff00' };
-  if (kills >= 5000) return { title: '伯爵', level: 40, color: '#00ffff' };
-  if (kills >= 2000) return { title: '子爵', level: 30, color: '#0088ff' };
-  if (kills >= 1000) return { title: '男爵', level: 20, color: '#4444ff' };
-  if (kills >= 500) return { title: '精英', level: 10, color: '#888888' };
-  return { title: '初心者', level: 1, color: '#ffffff' };
+const getRankInfo = (kills = 0) => {
+  let titleIdx = 0;
+  for (let i = RANKS_CONFIG.length - 1; i >= 0; i--) {
+    if (kills >= RANKS_CONFIG[i].minKills) {
+      titleIdx = i;
+      break;
+    }
+  }
+
+  const config = RANKS_CONFIG[titleIdx];
+  const relativeKills = kills - config.minKills;
+  const subRankLevel = Math.floor(relativeKills / config.scale); 
+  const currentSubRank = Math.min(5, subRankLevel + 1); 
+  
+  const subRankMap = ['五階', '四階', '三階', '二階', '一階'];
+  const subRankText = subRankMap[currentSubRank - 1] || '一階';
+  const level = (titleIdx * 5) + Math.min(5, currentSubRank);
+
+  let nextThreshold = config.minKills + (currentSubRank * config.scale);
+  let isMax = false;
+  
+  if (currentSubRank >= 5) {
+    if (titleIdx < RANKS_CONFIG.length - 1) {
+      nextThreshold = RANKS_CONFIG[titleIdx + 1].minKills;
+    } else {
+      isMax = true;
+    }
+  }
+
+  return { 
+    ...config, 
+    level, 
+    subRank: subRankText,
+    fullTitle: `${config.title} ${subRankText}`,
+    nextKills: isMax ? 0 : (nextThreshold - kills),
+    progress: isMax ? 100 : Math.min(99, ((kills - (config.minKills + (currentSubRank-1)*config.scale)) / config.scale) * 100)
+  };
 };
 
 // --- 頭像渲染助手 (v4.9) ---
@@ -106,6 +153,7 @@ function App() {
   const [isSummariesLoading, setIsSummariesLoading] = useState(false); // 大廳加載狀態
   const [lastSummariesUpdate, setLastSummariesUpdate] = useState(null); // 上次刷新時間
   const [isTabActive, setIsTabActive] = useState(true); // 頁面是否在前景 (v3.3)
+  const [selectedMedal, setSelectedMedal] = useState(null); // 當前點選查看的勳章 (v4.4)
 
   const userHasSeenSelfInRoom = useRef(false);
   const lastPresenceUpdateTs = useRef(0); // 頻率限制 (v3.2)
@@ -1063,6 +1111,89 @@ function App() {
     return Object.values(roomSummaries).filter(r => r && r.bossId === selectedBossId);
   }, [roomSummaries, selectedBossId]);
 
+  const renderMedalOverview = () => {
+    const userKills = currentUser?.profile?.totalKills || 0;
+    const currentRank = getRankInfo(userKills);
+    
+    return (
+      <div className="medal-hall-container fade-in">
+        <header className="medal-hall-header">
+          <div className="hall-title">
+            <span className="hall-icon">🏆</span>
+            <h1>榮譽殿堂 <small>Honor Hall</small></h1>
+          </div>
+          <div className="hall-summary glass-panel">
+            <div className="summary-main">
+              <span className="s-label">當前名望：</span>
+              <span className="s-title" style={{color: currentRank.color}}>{currentRank.fullTitle}</span>
+              <span className="s-level">Lv.{currentRank.level}</span>
+            </div>
+            <div className="summary-progress">
+              <div className="p-bar-bg"><div className="p-bar-fill" style={{width: `${currentRank.progress}%`, background: currentRank.color}}></div></div>
+              <div className="p-text">
+                {currentRank.nextKills > 0 ? `距離下一階級還差 ${currentRank.nextKills} 擊殺` : '已達成最高榮耀'}
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div className="medal-grid">
+          {RANKS_CONFIG.map((rank, idx) => {
+            const isUnlocked = userKills >= rank.minKills;
+            const isCurrentTitle = currentRank.title === rank.title;
+            
+            return (
+              <div 
+                key={idx} 
+                className={`medal-card ${isUnlocked ? 'unlocked' : ''} ${isCurrentTitle ? 'active' : ''}`}
+                onClick={() => setSelectedMedal({...rank, levelRange: `Lv.${idx*5+1} - ${idx*5+5}`})}
+              >
+                <div className="m-badge" style={{borderColor: isUnlocked ? rank.color : 'rgba(255,255,255,0.1)'}}>
+                  <span className="m-icon">{rank.badge}</span>
+                  {isUnlocked && <div className="m-glow" style={{background: rank.color}}></div>}
+                </div>
+                <div className="m-info">
+                  <div className="m-name" style={{color: isUnlocked ? '#fff' : '#444'}}>{rank.title}</div>
+                  <div className="m-req">{isUnlocked ? '已達成' : `解鎖: ${rank.minKills}`}</div>
+                  {isCurrentTitle && <div className="m-current-tag">CURRENT</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 勳章詳情彈窗 (v4.4) */}
+        {selectedMedal && (
+          <div className="medal-detail-overlay fade-in" onClick={() => setSelectedMedal(null)}>
+            <div className="medal-detail-popup glass-panel" onClick={e => e.stopPropagation()}>
+              <button className="close-popup-btn" onClick={() => setSelectedMedal(null)}>×</button>
+              <div className="p-badge-large" style={{borderColor: selectedMedal.color}}>
+                <span className="p-icon-large">{selectedMedal.badge}</span>
+                <div className="p-glow-large" style={{background: selectedMedal.color}}></div>
+              </div>
+              <h2 style={{color: selectedMedal.color}}>{selectedMedal.title}</h2>
+              <div className="p-level-tag">{selectedMedal.levelRange}</div>
+              <p className="p-description">“ {selectedMedal.desc} ”</p>
+              <div className="p-stats-row">
+                <div className="p-stat-box">
+                  <span className="p-s-label">解鎖門檻</span>
+                  <span className="p-s-value">{selectedMedal.minKills} 擊殺</span>
+                </div>
+                <div className="p-stat-box">
+                  <span className="p-s-label">階級跨度</span>
+                  <span className="p-s-value">每階 {selectedMedal.scale} 殺</span>
+                </div>
+              </div>
+              <button className="v9-btn-confirm" onClick={() => setSelectedMedal(null)} style={{marginTop: '30px', width: '100%'}}>確認收到榮耀</button>
+            </div>
+          </div>
+        )}
+        
+        <button className="v9-btn-secondary back-lobby-btn" onClick={() => setView('lobby')}>返回大廳中心</button>
+      </div>
+    );
+  };
+
   const renderContent = () => {
     if (authChecking) return <div className="loading-screen">連線中...</div>;
     try {
@@ -1147,6 +1278,7 @@ function App() {
           </div>
         );
       }
+      if (view === 'medals') return renderMedalOverview();
       if (view === 'profile') {
         const stats = currentUser.profile?.bossStats || {};
         const rank = getRankInfo(currentUser.profile?.totalKills, currentUser.profile?.totalHours);
@@ -1167,8 +1299,9 @@ function App() {
                   <div className="avatar-edit-overlay">更換</div>
                 </div>
                 <div className="profile-info">
-                  <p className="profile-rank" style={{ color: rank.color }}>{rank.title}</p>
-                  <h2>{userName}</h2>
+                  <h2 className="profile-full-title" style={{ color: rank.color }}>{rank.fullTitle}</h2>
+                  <div className="rank-pill-badge">Lv.{rank.level}</div>
+                  <p className="profile-user-name">暱稱: {userName}</p>
                   <p className="profile-uid" style={{fontSize: '10px', opacity: 0.5}}>{currentUser.uid}</p>
                   <div className="profile-edit-name">
                     <input type="text" className="v9-profile-input" defaultValue={userName} id="profileNameInput" placeholder="暱稱" />
@@ -1557,6 +1690,12 @@ function App() {
             </div>
           ) : (
             <div className="user-profile-menu header-actions">
+              <button 
+                className={`medal-hall-btn ${view === 'medals' ? 'active' : ''}`} 
+                onClick={() => setView('medals')}
+              >
+                🎖️ 勳章總覽
+              </button>
               {currentUser?.uid === ADMIN_UID && (
                 <button 
                   className={`admin-entry-btn ${view === 'admin' ? 'active' : ''}`} 

@@ -1661,7 +1661,7 @@ body {
   height: 40px;
   background: #1a1a1f;
   border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 10px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1672,6 +1672,19 @@ body {
 .header-avatar-v9:hover { border-color: var(--accent-gold); background: #222; }
 .header-avatar-v9 img { width: 100%; height: 100%; object-fit: cover; }
 .avatar-emoji-header { font-size: 1.4rem; }
+
+.avatar-img, .avatar-emoji-container {
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.avatar-emoji-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a1a1f;
+  border: 1px solid rgba(255,255,255,0.1);
+}
 
 /* === Cyber HUD Modal Redesign (v2.3.2) === */
 .avatar-modal .modal-content, .leave-modal .modal-content, .voice-modal .modal-content {
@@ -1734,20 +1747,47 @@ body {
 
 /* Avatar Large Display */
 .profile-avatar-large {
-  width: 150px;
-  height: 150px;
-  background: #1a1a1f;
-  border-radius: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid var(--border-dim);
   overflow: hidden;
   cursor: pointer;
   transition: all 0.2s;
 }
 .profile-avatar-large:hover { border-color: var(--accent-gold); transform: scale(1.02); }
-.avatar-emoji-large { font-size: 5rem; }
+.avatar-emoji-large {
+  font-size: 5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.profile-full-title {
+  font-size: 2.2rem;
+  font-weight: 900;
+  margin: 0 0 5px 0;
+  text-shadow: 0 0 20px rgba(0,0,0,0.5);
+}
+
+.rank-pill-badge {
+  display: inline-block;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  padding: 5px 18px;
+  border-radius: 40px;
+  font-size: 0.95rem;
+  font-weight: 900;
+  margin-bottom: 20px;
+  border: 1px solid rgba(255,255,255,0.15);
+  box-shadow: 0 0 15px rgba(255,255,255,0.05);
+  letter-spacing: 2px;
+}
+
+.profile-user-name {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #aaa;
+  margin-bottom: 15px;
+}
 
 /* Readonly Input style (v2.2) */
 .v9-readonly-input {
@@ -2215,4 +2255,249 @@ body {
   .refresh-btn {
     width: 100%;
   }
+}
+
+/* === Medal Hall (Honor Hall) Stylings (v4.0) === */
+.medal-hall-container {
+  padding: 40px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.medal-hall-header {
+  margin-bottom: 40px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 30px;
+  flex-wrap: wrap;
+}
+
+.hall-title h1 {
+  font-size: 2.5rem;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: 2px;
+}
+
+.hall-title h1 small {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--accent-gold);
+  opacity: 0.7;
+  text-transform: uppercase;
+}
+
+.hall-summary {
+  flex: 1;
+  min-width: 300px;
+  padding: 25px;
+  border-radius: 20px;
+}
+
+.summary-main {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 15px;
+}
+
+.s-label { color: #888; font-weight: 700; }
+.s-title { font-size: 1.4rem; font-weight: 900; }
+.s-level { background: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 6px; font-size: 0.9rem; font-weight: 800; }
+
+.summary-progress { width: 100%; }
+.p-bar-bg { height: 8px; background: rgba(255,255,255,0.05); border-radius: 10px; overflow: hidden; margin-bottom: 8px; }
+.p-bar-fill { height: 100%; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); }
+.p-text { font-size: 0.8rem; color: #666; font-weight: 800; }
+
+.medal-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 15px;
+  margin-bottom: 40px;
+}
+
+.medal-card {
+  padding: 25px 15px;
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transition: transform 0.3s cubic-bezier(0.19, 1, 0.22, 1), 
+              box-shadow 0.3s ease,
+              background 0.3s ease;
+  position: relative;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  cursor: pointer;
+}
+
+.medal-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(246, 207, 87, 0.5);
+  transform: translateY(-5px);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+/* 沉浸式背景背景虛化 (已移除，回歸點擊模式) */
+.medal-grid:hover .medal-card:not(:hover) {
+  opacity: 1;
+  filter: none;
+  transform: scale(1);
+}
+
+.medal-card.locked, .medal-card.future-medal { 
+  opacity: 1; /* 取消透明度 */
+  filter: none; /* 取消灰階 */
+}
+.medal-card.unlocked { 
+  background: rgba(255,255,255,0.04); 
+  border-color: rgba(255,255,255,0.1); 
+  opacity: 1;
+  filter: none;
+}
+.medal-card.active { border-color: var(--accent-gold); box-shadow: 0 0 30px rgba(246, 207, 87, 0.1); }
+
+.m-badge {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 3px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 15px;
+  position: relative;
+  background: #111;
+}
+
+.m-icon { font-size: 1.8rem; z-index: 2; }
+
+.m-glow {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border-radius: 50%;
+  opacity: 0.2;
+  filter: blur(15px);
+}
+
+.m-name { font-size: 1rem; font-weight: 900; color: #fff; margin-bottom: 8px; }
+.m-desc {
+  font-size: 0.7rem;
+  color: #888;
+  line-height: 1.4;
+  margin-bottom: 12px;
+  padding: 0 5px;
+  min-height: 2em;
+}
+.m-req { font-size: 0.7rem; color: var(--accent-gold); font-weight: 700; opacity: 0.6; }
+.m-current-tag {
+  position: absolute; top: 10px; right: 10px;
+  background: var(--accent-gold); color: #000;
+  font-size: 8px; font-weight: 900;
+  padding: 2px 6px; border-radius: 20px;
+}
+.m-level-range { margin-top: 10px; font-size: 0.75rem; color: #444; font-weight: 800; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; width: 100%; }
+/* 勳章詳情彈窗樣式 (v4.4) */
+.medal-detail-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.85);
+  backdrop-filter: blur(15px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+
+.medal-detail-popup {
+  width: 100%;
+  max-width: 480px;
+  background: #111115;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 32px;
+  padding: 50px 40px;
+  text-align: center;
+  position: relative;
+  animation: centricFadeScale 0.4s cubic-bezier(0.19, 1, 0.22, 1) forwards;
+}
+
+@keyframes centricFadeScale {
+  0% { opacity: 0; transform: scale(0.7); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.close-popup-btn {
+  position: absolute; top: 20px; right: 20px;
+  background: none; border: none; font-size: 2rem;
+  color: #555; cursor: pointer; line-height: 1;
+  transition: color 0.2s;
+}
+.close-popup-btn:hover { color: #fff; }
+
+.p-badge-large {
+  width: 140px; height: 140px;
+  border-radius: 50%; border: 6px solid #222;
+  margin: 0 auto 30px;
+  display: flex; align-items: center; justify-content: center;
+  position: relative; background: #000;
+  box-shadow: 0 0 50px rgba(0,0,0,0.5);
+}
+
+.p-icon-large { font-size: 4rem; z-index: 2; }
+.p-glow-large {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  border-radius: 50%; opacity: 0.3; filter: blur(30px);
+}
+
+.p-level-tag {
+  display: inline-block; background: rgba(255,255,255,0.05);
+  color: #fff; padding: 5px 15px; border-radius: 20px;
+  font-size: 0.9rem; font-weight: 800; margin-bottom: 25px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.p-description {
+  font-size: 1.1rem; color: #aaa; line-height: 1.6;
+  font-style: italic; margin-bottom: 35px;
+  padding: 0 10px;
+}
+
+.p-stats-row {
+  display: flex; justify-content: space-around;
+  background: rgba(255,255,255,0.02);
+  padding: 20px; border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+.p-stat-box { display: flex; flex-direction: column; gap: 5px; }
+.p-s-label { font-size: 0.75rem; color: #666; font-weight: 800; text-transform: uppercase; }
+.p-s-value { font-size: 1.2rem; color: #fff; font-weight: 900; }
+
+.medal-hall-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(246, 207, 87, 0.2);
+  border-radius: 30px;
+  padding: 8px 16px;
+  color: var(--accent-gold);
+  font-weight: 900;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.medal-hall-btn:hover, .medal-hall-btn.active {
+  background: var(--accent-gold);
+  color: #000;
+  box-shadow: 0 0 15px rgba(246, 207, 87, 0.3);
+}
+
+@media (max-width: 1024px) {
+  .medal-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 768px) {
+  .medal-hall-container { padding: 20px; }
+  .hall-title h1 { font-size: 1.8rem; }
+  .medal-grid { grid-template-columns: repeat(2, 1fr); }
 }
