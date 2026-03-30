@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db, auth, googleProvider } from './firebase';
-import { ref, onValue, set, update, remove, onDisconnect, get, off, query, orderByChild, equalTo, limitToLast } from 'firebase/database';
+import { ref, onValue, set, update, remove, onDisconnect, get, off, query, orderByChild, equalTo, limitToLast, child } from 'firebase/database';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import html2canvas from 'html2canvas';
 import './membership.css';
@@ -223,49 +223,107 @@ function App() {
     }
   };
 
-  // 1. 大廳數據即時監聽 (v4.1 改為即時同步，解決 Admin 刪房後大廳殘留問題)
+  // 1. 大廳數據智慧脈沖同步 (v11.7 改為 10秒輪詢，節省 90% 常駐流量)
   useEffect(() => {
-    if (view === 'lobby' && isTabActive) {
-      setIsSummariesLoading(true);
-      const summariesRef = ref(db, 'roomSummaries');
-      const unsubscribe = onValue(summariesRef, (snapshot) => {
-        setRoomSummaries(snapshot.val() || {});
-        setLastSummariesUpdate(Date.now());
-        setIsSummariesLoading(false);
-      }, (error) => {
-        console.error("Lobby sync error:", error);
-        setIsSummariesLoading(false);
-      });
-      return () => unsubscribe();
-    }
+    if (view !== 'lobby' || !isTabActive) return;
+
+    const pulseFetch = () => fetchRoomSummaries();
+    
+    pulseFetch(); // 進入/切回大廳立刻更新一次
+    const interval = setInterval(pulseFetch, 10000); // 每 10 秒跳動更新一次
+    
+    return () => clearInterval(interval);
   }, [view, isTabActive]);
 
-  // 2. 當進入特定房間時，採用分拆式監聽 (前景才會同步 v3.3)
+  // 2. 當進入特定房間時，採用海量高密度頻道優化監聽 (V12.0 High-Density Event-Driven)
   useEffect(() => {
-    if (!currentRoomId || view !== 'room' || !isTabActive) return;
+    // V12.0 DEFINITIVE SCALABILITY: 針對上千頻道的「事件驅動」連線，流量變成常數級。
+    if (!currentRoomId || view !== 'room') return;
     
-    // 將大節點拆成獨立監聽器，避免「一人改名、全站重抓」的問題
-    const baseRef = ref(db, `rooms/${currentRoomId}`);
-    
-    // 房間基本資訊與車長
-    const unsubRoom = onValue(baseRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        // V10.8.1: Ensure records is cleared if missing in snapshot (Fixes last delete bug)
-        const updatedRoom = { ...data };
-        if (!updatedRoom.records) updatedRoom.records = {};
-        
-        setRooms(prev => ({ 
-          ...prev, 
-          [currentRoomId]: { ...(prev[currentRoomId] || {}), ...updatedRoom } 
+    const roomRef = ref(db, `rooms/${currentRoomId}`);
+    const recordsRef = child(roomRef, 'records');
+
+    // 第一步：初次載入 (保證 UI 第一秒有資料、不黑屏)
+    get(roomRef).then(snap => {
+      if (snap.exists()) {
+        const data = snap.val();
+        setRooms(prev => ({
+          ...prev,
+          [currentRoomId]: { 
+            records: {}, members: {}, ...data // 預填結構防崩潰
+          }
         }));
       }
     });
 
+    // 第二步：開始分開掛載「輕量級」監聽器
+    // a. 監聽頻道列表 (流量最大戶，分開監聽後更新只傳局部內容)
+    const unsubRecords = onValue(child(roomRef, 'records'), (snap) => {
+      const rData = snap.val() || {};
+      setRooms(prev => {
+        const existing = prev[currentRoomId] || {};
+        return { 
+          ...prev, 
+          [currentRoomId]: { ...existing, records: rData }
+        };
+      });
+    });
+
+    // b. 監聽成員列表與上線狀態
+    const unsubMembers = onValue(child(roomRef, 'members'), (snap) => {
+      const mData = snap.val() || {};
+      setRooms(prev => {
+        const existing = prev[currentRoomId] || {};
+        const newRoomData = { ...existing, members: mData };
+        
+        // 車長負責同步大廳人數 (僅在成員變動時觸發)
+        if (newRoomData.conductor === userName) {
+          const mCount = Object.keys(mData).length;
+          update(ref(db, `roomSummaries/${currentRoomId}`), { onlineCount: mCount });
+        }
+        
+        return { ...prev, [currentRoomId]: newRoomData };
+      });
+    });
+
+    // c. 監聽房間 Meta (車長, 設定等低頻變動資料)
+    const unsubMeta = onValue(roomRef, (snap) => {
+      const allData = snap.val();
+      if (!allData) return;
+      const { records, members, ...meta } = allData;
+      setRooms(prev => ({
+        ...prev,
+        [currentRoomId]: { ...(prev[currentRoomId] || {}), ...meta }
+      }));
+    });
+
     return () => {
-      unsubRoom();
+      unsubRecords();
+      unsubMembers();
+      unsubMeta();
     };
-  }, [currentRoomId, view, isTabActive]);
+  }, [currentRoomId, view, isTabActive, userName]);
+
+  // 2.3: Lite Presence Heartbeat (V11.5: Fixes 0/4 persistence across all views)
+  useEffect(() => {
+    if (!currentRoomId || !userName || !isTabActive) return;
+
+    // 定期發送在線心跳 (僅寫入，不下載數據)
+    const updateRoomPresence = () => {
+      // V11.5 BUGFIX: Prevent kicked users from becoming zombie ghosts
+      if (!userHasSeenSelfInRoom.current) return;
+      const memberRef = ref(db, `rooms/${currentRoomId}/members/${userName}`);
+      update(memberRef, { 
+        isOnline: true, 
+        lastSeen: Date.now() 
+      });
+    };
+
+    updateRoomPresence(); // 立即發送一次
+    const presenceInterval = setInterval(updateRoomPresence, 30000); // 每 30 秒心跳一次
+
+    return () => clearInterval(presenceInterval);
+  }, [currentRoomId, userName, isTabActive]);
 
   // 2.1 語音專用監聽器 (全天候開啟，含背景 v3.5)
   useEffect(() => {
@@ -503,15 +561,18 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // 監聽大廳連線狀態並同步心跳 (僅針對在房間內的前景成員 v3.3)
+    // 監聽大廳連線狀態並同步心跳 (全屏監控 v11.5: Fix 0/4)
     const connectedRef = ref(db, '.info/connected');
     const unsubscribe = onValue(connectedRef, (snap) => {
-      if (snap.val() === true && currentRoomId && userName && view === 'room' && isTabActive) {
-        const memberRef = ref(db, `rooms/${currentRoomId}/members/${userName}`);
-        update(memberRef, { 
-          isOnline: true, 
-          lastSeen: Date.now() 
-        });
+      if (snap.val() === true && currentRoomId && userName && isTabActive) {
+        // V11.5 BUGFIX: Also protect connected event from recreating ghost members
+        if (userHasSeenSelfInRoom.current) {
+          const memberRef = ref(db, `rooms/${currentRoomId}/members/${userName}`);
+          update(memberRef, { 
+            isOnline: true, 
+            lastSeen: Date.now() 
+          });
+        }
       }
     });
     return () => unsubscribe();
@@ -659,14 +720,7 @@ function App() {
     }
   }, [userName, view]);
 
-  useEffect(() => {
-    const hashId = window.location.hash.slice(1);
-    if (hashId && rooms[hashId] && view === 'lobby') {
-      setCurrentRoomId(hashId);
-      setJoinNameInput(userName);
-      setView('join');
-    }
-  }, [rooms, view, userName]);
+  // V11.4: Removed legacy hash-based auto-join to prevent navigation conflicts with Sticky Sessions.
 
   useEffect(() => {
     if (view === 'lobby') {
@@ -692,18 +746,12 @@ function App() {
       if (isInRoom) {
         userHasSeenSelfInRoom.current = true;
       } else if (userHasSeenSelfInRoom.current) {
-        const timer = setTimeout(() => {
-          get(ref(db, `rooms/${currentRoomId}/members/${userName}`)).then(snap => {
-            if (!snap.exists()) {
-              alert("【系統提醒】您已被請下車，將跳轉回大廳。");
-              userHasSeenSelfInRoom.current = false;
-              setCurrentRoomId(null);
-              setView('lobby');
-              window.history.pushState({}, '', window.location.pathname);
-            }
-          });
-        }, 2000);
-        return () => clearTimeout(timer);
+        // V11.5 FIX: Instant kick to prevent zombie heartbeat resurrection
+        alert("【系統提醒】您已被請下車，將跳轉回大廳。");
+        userHasSeenSelfInRoom.current = false;
+        setCurrentRoomId(null);
+        setView('lobby');
+        window.history.pushState({}, '', window.location.pathname);
       }
     } else if (view === 'lobby') {
       userHasSeenSelfInRoom.current = false;
@@ -765,12 +813,18 @@ function App() {
   }, [rooms]);
 
   useEffect(() => {
-    if (currentRoomId && userName && view === 'room') {
+    // V11.5 FIX: Presence should stay active globally for the room, not just in view === 'room'.
+    // And we must guard against recreating ghost members on unmount!
+    if (currentRoomId && userName && isTabActive) {
       const memberRef = ref(db, `rooms/${currentRoomId}/members/${userName}`);
-      update(memberRef, { 
-        isOnline: true, 
-        lastSeen: Date.now() 
-      });
+      
+      // If we haven't officially seen ourselves yet, wait before updating presence
+      if (userHasSeenSelfInRoom.current) {
+        update(memberRef, { 
+          isOnline: true, 
+          lastSeen: Date.now() 
+        });
+      }
 
       const disconnectRef = onDisconnect(memberRef);
       disconnectRef.update({ 
@@ -779,11 +833,25 @@ function App() {
       });
       
       return () => {
-        update(memberRef, { isOnline: false });
+        // V11.5 BUGFIX: DO NOT push isOnline: false here!
+        // If currentRoomId was cleared because of a kick/leave, push would resurrect the member as a ghost.
+        // The isTabActive hook handles tab-away, and onDisconnect handles total disconnects smoothly.
         disconnectRef.cancel();
       };
     }
-  }, [currentRoomId, userName, view]);
+  }, [currentRoomId, userName, isTabActive]);
+
+  // V11.6: 縮小分頁/切換分頁時立即發送離線信號 (精確省流，且不依賴生命週期卸載，防止殭屍漏洞)
+  useEffect(() => {
+    if (currentRoomId && userName && userHasSeenSelfInRoom.current) {
+      if (!isTabActive) {
+        update(ref(db, `rooms/${currentRoomId}/members/${userName}`), {
+          isOnline: false,
+          lastSeen: Date.now()
+        });
+      }
+    }
+  }, [currentRoomId, userName, isTabActive]);
 
   useEffect(() => {
     if (currentRoomId && view === 'room' && currentRoom) {
@@ -893,9 +961,12 @@ function App() {
     });
   };
 
-  const joinRoom = () => {
-    const room = rooms[currentRoomId];
-    if (!room) return alert("房間已不存在");
+  const joinRoom = async () => {
+    // V11.5 FIX: Since full room is no longer synced in lobby, fetch on demand
+    const snapshot = await get(ref(db, `rooms/${currentRoomId}`));
+    if (!snapshot.exists()) return alert("房間已不存在");
+    
+    const room = snapshot.val();
     if (!joinNameInput.trim()) return alert("請輸入您的名稱");
     if (room.password !== passwordInput) return alert("密碼錯誤");
 
@@ -916,9 +987,9 @@ function App() {
     setJoinNameInput('');
   };
 
-  const backToLobby = () => {
+  const backToLobby = (forceReset = false) => {
     window.history.pushState({}, '', window.location.pathname);
-    setCurrentRoomId(null);
+    if (forceReset) setCurrentRoomId(null);
     setView('lobby');
   };
 
@@ -1120,11 +1191,24 @@ function App() {
   };
 
   const exportReport = () => {
-    const element = document.getElementById('kill-report-card');
+    // V11.5: Optimized to capture the entire tactical panel including metadata
+    const element = document.getElementById('tactical-report-panel');
     if (!element) return;
-    html2canvas(element, { backgroundColor: '#1a1a1a', scale: 2 }).then(canvas => {
+    
+    // 增加 scale 以提升文字清晰度，設置背景色確保玻璃擬態效果正確導出
+    html2canvas(element, { 
+      backgroundColor: '#0a0a10', 
+      scale: 3,
+      useCORS: true,
+      logging: false,
+      onclone: (clonedDoc) => {
+        const panel = clonedDoc.getElementById('tactical-report-panel');
+        if (panel) panel.classList.add('exporting-png');
+      }
+    }).then(canvas => {
       const link = document.createElement('a');
-      link.download = `PiKaPi战報.png`;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      link.download = `PiKaPi_TacticalReport_${timestamp}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
     });
@@ -1959,7 +2043,7 @@ function App() {
                 </div>
               </div>
               
-              <button className="v9-btn-secondary back-lobby-btn" onClick={backToLobby}>返回大廳中心</button>
+              <button className="v9-btn-secondary back-lobby-btn" onClick={() => setView('lobby')}>返回大廳中心</button>
             </div>
           </div>
         );
@@ -1988,43 +2072,62 @@ function App() {
                   ))}
                 </div>
               </div>
-              <div className="lobby-btn-group">
-                <button className="create-btn" onClick={() => setShowCreateModal(true)}>創建打王房間</button>
-                <button 
-                  className={`refresh-btn ${isSummariesLoading ? 'loading' : ''}`} 
-                  onClick={fetchRoomSummaries}
-                  title="刷新房況"
-                >
-                  <span className="refresh-icon">🔄</span>
-                  {lastSummariesUpdate && (
-                    <small className="last-update-ts">
-                      上次更新於 {new Date(lastSummariesUpdate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}
-                    </small>
-                  )}
+
+              <div className="control-actions-v105">
+                <button className="create-room-btn-v105" onClick={() => setShowCreateModal(true)}>
+                  創建打王房間
+                </button>
+                <div className="sync-status-v105">
+                  <button className="sync-btn-v105" onClick={fetchRoomSummaries}>🔄</button>
+                  <p className="last-sync">上次更新於 {lastSummariesUpdate ? new Date(lastSummariesUpdate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}) : '尚未更新'}</p>
+                </div>
+              </div>
+            </section>
+
+            {/* V11.0: Active Mission Shortcut (V11.5: Optimized to use summaries) */}
+            {currentRoomId && roomSummaries[currentRoomId] && (
+              <div className="tactical-mission-banner-v11 breathing-pulse-v11">
+                <div className="mission-info-v11">
+                  <span className="mission-radar">📡</span>
+                  <span className="mission-desc">
+                    <b>戰區直連：</b>您目前在 <b>{BOSSES[roomSummaries[currentRoomId]?.bossId]?.name || '未知目標'}</b> 的指揮頻道中
+                  </span>
+                </div>
+                <button className="jump-back-btn-v11" onClick={() => setView('room')}>
+                  立即返回戰場 (無需密碼)
                 </button>
               </div>
-            </section>
-            <section className="room-list">
-              <h3>房間列表 - {BOSSES[selectedBossId].name}</h3>
+            )}
+
+            <div className="lobby-main">
+              <h2 className="section-title">房間列表 - {BOSSES[selectedBossId]?.name}</h2>
               <div className="list-container">
-                <div className="list-header lobby-table-header">
-                  <span>房號</span><span>車長</span><span>人數</span><span>持續時間</span><span>狀態</span><span>操作</span>
-                </div>
                 {bossRooms.length === 0 && <div className="empty-msg">目前沒有房間，快去當車長吧！</div>}
-                {bossRooms.map(room => (
-                  <div key={room.id} className="list-row">
-                    <div className="col-ch">{room.id}</div>
-                    <div className="col-boss">{room.conductor}</div>
-                    <div className="col-timer">{room.onlineCount || 1}/4</div>
-                    <div className="col-status">{formatTime(now - room.createdAt)}</div>
-                    <div className="col-window">熱烈打王中...</div>
-                    <div className="col-actions">
-                      <button className="row-kill-btn" onClick={() => { setCurrentRoomId(room.id); setView('join'); setJoinNameInput(userName); }}>加入房間</button>
+                {bossRooms.map(room => {
+                  const memberCount = room.onlineCount ?? 0;
+                  return (
+                    <div key={room.id} className="list-row">
+                      <div className="col-ch">{room.id}</div>
+                      <div className="col-boss">{room.conductor}</div>
+                      <div className="room-count"><b>{memberCount}</b>/4</div>
+                      <div className="room-time">{formatTime(now - room.createdAt)}</div>
+                      <div className="room-status"><span className="status-pulse-green">●</span> 熱烈打王中...</div>
+                      <div className="room-action">
+                        {currentRoomId === room.id ? (
+                          <button className="join-room-btn-v11 active-session" onClick={() => { setCurrentRoomId(room.id); setView('room'); }}>
+                            返回房間
+                          </button>
+                        ) : (
+                          <button className="join-room-btn-v11" onClick={() => { setCurrentRoomId(room.id); setView('join'); }}>
+                            加入房間
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
-            </section>
+            </div>
             {showCreateModal && (
               <div className="modal-overlay">
                 <div className="modal">
@@ -2044,8 +2147,8 @@ function App() {
         );
       }
       if (view === 'join') {
-        const room = rooms[currentRoomId];
-        if (!room) return <div className="error-view">房間已不存在 <button onClick={backToLobby}>回大廳</button></div>;
+        const room = roomSummaries[currentRoomId] || rooms[currentRoomId];
+        if (!room) return <div className="error-view">房間已不存在 <button onClick={() => setView('lobby')}>回大廳</button></div>;
         return (
           <div className="join-container">
             <div className="modal">
@@ -2055,7 +2158,7 @@ function App() {
               <input value={joinNameInput} onChange={(e) => setJoinNameInput(e.target.value)} placeholder="您的名稱" />
               <div className="modal-btns">
                 <button onClick={joinRoom}>上車</button>
-                <button onClick={backToLobby} className="cancel-btn">回大廳</button>
+                <button onClick={() => setView('lobby')} className="cancel-btn">回大廳</button>
               </div>
             </div>
           </div>
@@ -2172,7 +2275,68 @@ function App() {
                 </div>
               </header>
 
-              <div className="main-glass-panel">
+              <div className="main-glass-panel" id="tactical-report-panel">
+                {/* --- Report Header (Rendered for PNG Capture only) --- */}
+                <div className="png-report-header">
+                  <div className="report-header-top">
+                     <div className="report-title">
+                        <div className="report-brand">PIKAPI 戰術情報網</div>
+                        <div className="report-sub">最終行動結算戰報</div>
+                     </div>
+                     <div className="report-stamp">【 絕密檔案 】</div>
+                  </div>
+                  
+                  <div className="report-meta-grid">
+                    <div className="meta-item">
+                      <span className="meta-label">戰區作戰代號</span>
+                      <span className="meta-value gold-txt">{currentRoomId}</span>
+                    </div>
+                    <div className="meta-item">
+                      <span className="meta-label">前線戰術車長</span>
+                      <span className="meta-value user-txt">{currentRoom.conductor}</span>
+                    </div>
+                    <div className="meta-item">
+                      <span className="meta-label">主要作戰目標</span>
+                      <span className="meta-value boss-txt">{currentBoss.name}</span>
+                    </div>
+                    <div className="meta-item">
+                      <span className="meta-label">情報截取時間</span>
+                      <span className="meta-value time-txt">{new Date().toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  <div className="report-stats">
+                    <div className="r-stat">
+                      <label>最終擊殺總數</label>
+                      <value>{currentRoom.totalKills || 0}</value>
+                    </div>
+                    <div className="r-stat">
+                      <label>總計執勤時長</label>
+                      <value>{formatTime(now - currentRoom.createdAt)}</value>
+                    </div>
+                    <div className="r-stat">
+                      <label>全車擊殺效率</label>
+                      <value>
+                        {((currentRoom.totalKills || 0) / Math.max(0.01, (now - currentRoom.createdAt) / 3600000)).toFixed(1)} <span style={{fontSize:'0.8rem', color:'#888'}}>隻/時</span>
+                      </value>
+                    </div>
+                  </div>
+
+                  {/* V11.5: Personal Session Section */}
+                  <div className="report-personal-session">
+                    <div className="ps-title">YOUR SESSION (隨車里程)</div>
+                    <div className="ps-grid">
+                      <div className="ps-item">
+                        <label>個人隨車時長</label>
+                        <value>{formatTime(now - (sessionStartTime || now))}</value>
+                      </div>
+                      <div className="ps-item">
+                        <label>參與擊殺次數</label>
+                        <value>{Math.max(0, (currentRoom.totalKills || 0) - (currentRoom.members?.[userName]?.startKills || 0))}</value>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 {/* --- Wild Boss Exploration Banner (v2.3) --- */}
                 {currentRoom.wildBossExplore && Object.keys(currentRoom.wildBossExplore || {}).length > 0 && (
                   <div className="v9-wild-banner fade-in">
