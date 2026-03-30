@@ -32,7 +32,7 @@ const BOSSES = {
 };
 
 const ROOM_AUTO_DELETE_MS = 2 * 60 * 60 * 1000; // 2 小時
-const ADMIN_UID = 'Ib9T643jMNcTNjIAd3aHMuNPTBj2'; // 管理員專屬完整的 UID
+const ADMIN_UID = 'dVqiQcpgNqR5xgHZbeGjsncgHeN2'; // 管理員專屬完整的 UID
 
 // 稱號與等級定義
 const getRankInfo = (kills = 0, hours = 0) => {
@@ -84,6 +84,7 @@ function App() {
   const [showAvatarModal, setShowAvatarModal] = useState(false); // 預設頭像彈窗
   const [selectedEmoji, setSelectedEmoji] = useState(null); // 選中的 Emoji
   const [copySuccess, setCopySuccess] = useState(false); // 複製密碼成功狀態
+  const [isUsersLoading, setIsUsersLoading] = useState(false); // 管理員加載狀態
 
   const userHasSeenSelfInRoom = useRef(false);
 
@@ -141,16 +142,24 @@ function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [adminMenu]);
 
-  useEffect(() => {
-    if (currentUser?.uid === ADMIN_UID) {
-      const usersRef = ref(db, 'users');
-      return onValue(usersRef, (snapshot) => {
-        setAllUsers(snapshot.val() || {});
-      });
+  const fetchAllUsers = async () => {
+    if (currentUser?.uid !== ADMIN_UID) return;
+    setIsUsersLoading(true);
+    try {
+      const snapshot = await get(ref(db, 'users'));
+      if (snapshot.exists()) {
+        setAllUsers(snapshot.val());
+      }
+    } catch (err) {
+      console.error("Failed to fetch users:", err);
+      alert("讀取成員資料失敗");
+    } finally {
+      setIsUsersLoading(false);
     }
-  }, [currentUser]);
+  };
 
   useEffect(() => {
+    // 監聽大廳連線狀態並同步心跳 (僅針對房間內成員)
     const connectedRef = ref(db, '.info/connected');
     const unsubscribe = onValue(connectedRef, (snap) => {
       if (snap.val() === true && currentRoomId && userName && view === 'room') {
@@ -836,90 +845,112 @@ function App() {
             </div>
           ) : (
             <div className="admin-users-view">
-              <div className="admin-user-sub-nav">
-                <div className="sub-nav-btns">
-                  <button className={adminUserSubTab === 'stats' ? 'active' : ''} onClick={() => setAdminUserSubTab('stats')}>🔥 績效排行</button>
-                  <button className={adminUserSubTab === 'directory' ? 'active' : ''} onClick={() => setAdminUserSubTab('directory')}>🗒️ 名錄管理</button>
-                </div>
-                <div className="admin-search-bar">
-                  <input 
-                    type="text" 
-                    placeholder="搜尋暱稱或 UID..." 
-                    value={adminUserSearchTerm}
-                    onChange={e => setAdminUserSearchTerm(e.target.value)}
-                  />
-                </div>
-              </div>
-              
-              {/* --- 申請等待區 (v4.9) --- */}
-              {adminUserSubTab === 'directory' && Object.values(allUsers).some(u => u.status === 'pending') && (
-                <div className="admin-pending-section glass-panel">
-                  <h3>🛡️ 申請等待區 (Pending Requests)</h3>
-                  <div className="pending-list">
-                    {Object.values(allUsers).filter(u => u.status === 'pending').map(pu => (
-                      <div key={pu.uid} className="pending-card">
-                        <div className="p-user-info">
-                          <img src={pu.photoURL || 'https://via.placeholder.com/40'} alt="avatar" />
-                          <div className="p-text">
-                            <span className="p-name">{pu.displayName}</span>
-                            <span className="p-uid">{pu.uid}</span>
-                          </div>
-                        </div>
-                        <div className="p-actions">
-                          <button className="btn-approve" onClick={() => adminApproveUser(pu.uid)}>同意</button>
-                          <button className="btn-reject" onClick={() => adminRejectUser(pu.uid)}>拒絕</button>
-                        </div>
-                      </div>
-                    ))}
+              {Object.keys(allUsers).length === 0 ? (
+                <div className="admin-load-data-cta">
+                  <div className="bandwidth-warning-box">
+                    <h4>⚠️ 頻寬最佳化提示</h4>
+                    <p>管理員名錄包含公會全體成員資料，讀取完整名錄會消耗大量流量。建議僅在維護時開啟。</p>
+                    <button 
+                      className="btn-v9-report" 
+                      style={{marginTop: '20px', padding: '15px 40px'}} 
+                      onClick={fetchAllUsers}
+                      disabled={isUsersLoading}
+                    >
+                      {isUsersLoading ? '戰略數據讀取中...' : '🛡️ 讀取完整成員名錄 (Download All)'}
+                    </button>
                   </div>
                 </div>
-              )}
+              ) : (
+                <>
+                  <div className="admin-user-sub-nav">
+                    <div className="sub-nav-btns">
+                      <button className={adminUserSubTab === 'stats' ? 'active' : ''} onClick={() => setAdminUserSubTab('stats')}>🔥 績效排行</button>
+                      <button className={adminUserSubTab === 'directory' ? 'active' : ''} onClick={() => setAdminUserSubTab('directory')}>🗒️ 名錄管理</button>
+                    </div>
+                    <div className="admin-search-bar">
+                      <input 
+                        type="text" 
+                        placeholder="搜尋暱稱或 UID..." 
+                        value={adminUserSearchTerm}
+                        onChange={e => setAdminUserSearchTerm(e.target.value)}
+                      />
+                    </div>
+                    <button className="btn-v9-grey" onClick={fetchAllUsers} style={{marginLeft: '10px'}} disabled={isUsersLoading}>
+                      {isUsersLoading ? '刷新中...' : '🔄 重新整理'}
+                    </button>
+                  </div>
+                  
+                  {/* --- 申請等待區 (v4.9) --- */}
+                  {adminUserSubTab === 'directory' && Object.values(allUsers).some(u => u.status === 'pending') && (
+                    <div className="admin-pending-section glass-panel">
+                      <h3>🛡️ 申請等待區 (Pending Requests)</h3>
+                      <div className="pending-list">
+                        {Object.values(allUsers).filter(u => u.status === 'pending').map(pu => (
+                          <div key={pu.uid} className="pending-card">
+                            <div className="p-user-info">
+                              <img src={pu.photoURL || 'https://via.placeholder.com/40'} alt="avatar" />
+                              <div className="p-text">
+                                <span className="p-name">{pu.displayName}</span>
+                                <span className="p-uid">{pu.uid}</span>
+                              </div>
+                            </div>
+                            <div className="p-actions">
+                              <button className="btn-approve" onClick={() => adminApproveUser(pu.uid)}>同意</button>
+                              <button className="btn-reject" onClick={() => adminRejectUser(pu.uid)}>拒絕</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-              <div className="admin-table-wrapper">
-                {adminUserSubTab === 'stats' ? (
-                  <table className="admin-table">
-                    <thead><tr><th>完整 UID</th><th>暱稱</th><th>總擊殺</th><th>總打王時間</th></tr></thead>
-                    <tbody>
-                      {userList
-                        .filter(u => (u.nickname || u.displayName || '').includes(adminUserSearchTerm) || u.uid.includes(adminUserSearchTerm))
-                        .map(u => (
-                        <tr key={u.uid}>
-                          <td className="admin-uid code-font" style={{wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px'}}>{u.uid}</td>
-                          <td className="admin-nickname">{u.nickname || u.displayName}</td>
-                          <td className="admin-kills">{u.totalKills || 0}</td>
-                          <td>{(u.totalHours || 0).toFixed(1)} h</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <table className="admin-table">
-                    <thead><tr><th>成員</th><th>完整 UID</th><th>狀態</th><th>位置</th><th>加入日期</th><th>維護</th></tr></thead>
-                    <tbody>
-                      {userList
-                        .filter(u => (u.nickname || u.displayName || '').includes(adminUserSearchTerm) || u.uid.includes(adminUserSearchTerm))
-                        .map(u => (
-                        <tr key={u.uid}>
-                          <td className="admin-user-cell">
-                            <img src={u.photoURL || 'https://via.placeholder.com/30'} alt="avatar" className="admin-mini-avatar" />
-                            <span>{u.nickname || u.displayName}</span>
-                          </td>
-                          <td className="admin-uid code-font" style={{wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px'}}>{u.uid}</td>
-                          <td>
-                            <span className={`status-dot ${u.isOnline ? 'online' : 'offline'}`}></span>
-                            {u.isOnline ? '在線上' : '離線'}
-                          </td>
-                          <td className="location-text">{getUserCurrentLocation(u.nickname || u.displayName)}</td>
-                          <td className="date-text">{u.createdAt ? new Date(u.createdAt).toLocaleString([], {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit'}) : '早期成員'}</td>
-                          <td>
-                            <button className="btn-danger btn-micro" onClick={() => adminResetUserStats(u.uid)}>重置</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
+                  <div className="admin-table-wrapper">
+                    {adminUserSubTab === 'stats' ? (
+                      <table className="admin-table">
+                        <thead><tr><th>完整 UID</th><th>暱稱</th><th>總擊殺</th><th>總打王時間</th></tr></thead>
+                        <tbody>
+                          {userList
+                            .filter(u => (u.nickname || u.displayName || '').includes(adminUserSearchTerm) || u.uid.includes(adminUserSearchTerm))
+                            .map(u => (
+                            <tr key={u.uid}>
+                              <td className="admin-uid code-font" style={{wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px'}}>{u.uid}</td>
+                              <td className="admin-nickname">{u.nickname || u.displayName}</td>
+                              <td className="admin-kills">{u.totalKills || 0}</td>
+                              <td>{(u.totalHours || 0).toFixed(1)} h</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <table className="admin-table">
+                        <thead><tr><th>成員</th><th>完整 UID</th><th>狀態</th><th>位置</th><th>加入日期</th><th>維護</th></tr></thead>
+                        <tbody>
+                          {userList
+                            .filter(u => (u.nickname || u.displayName || '').includes(adminUserSearchTerm) || u.uid.includes(adminUserSearchTerm))
+                            .map(u => (
+                            <tr key={u.uid}>
+                              <td className="admin-user-cell">
+                                <img src={u.photoURL || 'https://via.placeholder.com/30'} alt="avatar" className="admin-mini-avatar" />
+                                <span>{u.nickname || u.displayName}</span>
+                              </td>
+                              <td className="admin-uid code-font" style={{wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px'}}>{u.uid}</td>
+                              <td>
+                                <span className={`status-dot ${u.isOnline ? 'online' : 'offline'}`}></span>
+                                {u.isOnline ? '在線上' : '離線'}
+                              </td>
+                              <td className="location-text">{getUserCurrentLocation(u.nickname || u.displayName)}</td>
+                              <td className="date-text">{u.createdAt ? new Date(u.createdAt).toLocaleString([], {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit'}) : '早期成員'}</td>
+                              <td>
+                                <button className="btn-danger btn-micro" onClick={() => adminResetUserStats(u.uid)}>重置</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

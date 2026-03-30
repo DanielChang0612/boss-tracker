@@ -2085,3 +2085,41 @@ body {
   .v30-console-footer { flex-direction: column; gap: 20px; }
   .v30-action-group { width: 100%; flex-direction: column; }
 }
+
+/* === Admin Bandwidth Optimization (v3.1) === */
+.admin-load-data-cta {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 400px;
+  text-align: center;
+}
+
+.bandwidth-warning-box {
+  background: rgba(246, 207, 87, 0.05);
+  border: 1px dashed var(--accent-gold);
+  border-radius: 16px;
+  padding: 40px;
+  max-width: 500px;
+}
+
+.bandwidth-warning-box h4 {
+  color: var(--accent-gold);
+  font-size: 1.2rem;
+  margin-bottom: 15px;
+}
+
+.bandwidth-warning-box p {
+  color: #aaa;
+  line-height: 1.6;
+  font-size: 0.9rem;
+}
+
+.admin-user-sub-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  gap: 15px;
+  flex-wrap: wrap;
+}

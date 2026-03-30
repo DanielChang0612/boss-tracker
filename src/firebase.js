@@ -3,14 +3,14 @@ import { getDatabase } from "firebase/database";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBVxbTod0lle3lYaSIDrhD-lza_cCKNpKk",
-  authDomain: "boss-tracker-c83e0.firebaseapp.com",
-  databaseURL: "https://boss-tracker-c83e0-default-rtdb.firebaseio.com",
-  projectId: "boss-tracker-c83e0",
-  storageBucket: "boss-tracker-c83e0.firebasestorage.app",
-  messagingSenderId: "861594497284",
-  appId: "1:861594497284:web:bbf9ba6dde2cbf2f77a051",
-  measurementId: "G-JX5M6WCJG1"
+  apiKey: "AIzaSyANt5AvRtVrjXFILgqD6Q12zOCIoYBI0VM",
+  authDomain: "pikapi-boss-v2.firebaseapp.com",
+  databaseURL: "https://pikapi-boss-v2-default-rtdb.firebaseio.com/",
+  projectId: "pikapi-boss-v2",
+  storageBucket: "pikapi-boss-v2.firebasestorage.app",
+  messagingSenderId: "796098063643",
+  appId: "1:796098063643:web:69fadf1dd1df6b185b77be",
+  measurementId: "G-D3PEMMBHR5"
 };
 
 const app = initializeApp(firebaseConfig);
