@@ -36,12 +36,30 @@ const ADMIN_UID = 'dVqiQcpgNqR5xgHZbeGjsncgHeN2'; // 管理員專屬完整的 UI
 
 // 稱號與等級定義
 const getRankInfo = (kills = 0, hours = 0) => {
-  if (kills >= 500) return { title: "🍁 楓之谷守護神", color: "#ff4081", badge: "🎖️" };
-  if (kills >= 200) return { title: "⚔️ 野王收割者", color: "#d4af37", badge: "⚔️" };
-  if (kills >= 100) return { title: "🛡️ 高級近衛兵", color: "#00e676", badge: "🛡️" };
-  if (kills >= 50) return { title: "🍗 專業打野人", color: "#2196f3", badge: "🍖" };
-  if (kills >= 10) return { title: "🐣 打王見習生", color: "#bbb", badge: "🐣" };
-  return { title: "🌱 冒險新兵", color: "#888", badge: "🌱" };
+  if (kills >= 1000000) return { title: '虛空至尊', level: 100, color: '#ff00ff' };
+  if (kills >= 500000) return { title: '蒼穹戰神', level: 90, color: '#ff4400' };
+  if (kills >= 100000) return { title: '滅世領主', level: 80, color: '#ff8800' };
+  if (kills >= 50000) return { title: '大領主', level: 70, color: '#ffaa00' };
+  if (kills >= 20000) return { title: '公爵', level: 60, color: '#ffff00' };
+  if (kills >= 10000) return { title: '侯爵', level: 50, color: '#00ff00' };
+  if (kills >= 5000) return { title: '伯爵', level: 40, color: '#00ffff' };
+  if (kills >= 2000) return { title: '子爵', level: 30, color: '#0088ff' };
+  if (kills >= 1000) return { title: '男爵', level: 20, color: '#4444ff' };
+  if (kills >= 500) return { title: '精英', level: 10, color: '#888888' };
+  return { title: '初心者', level: 1, color: '#ffffff' };
+};
+
+// --- 頭像渲染助手 (v4.9) ---
+const renderAvatar = (photoURL, className = "avatar-img", style = {}) => {
+  const isEmoji = !photoURL || !photoURL.startsWith('http');
+  if (isEmoji) {
+    return (
+      <div className={`${className} avatar-emoji-container`} style={style}>
+        {photoURL || '🐶'}
+      </div>
+    );
+  }
+  return <img src={photoURL} alt="avatar" className={className} style={style} />;
 };
 
 function App() {
@@ -71,7 +89,7 @@ function App() {
     return saved ? JSON.parse(saved) : { voiceURI: '', rate: 1, pitch: 1 };
   });
 
-  // Admin 專屬狀態
+  const [presenceData, setPresenceData] = useState({});
   const [allUsers, setAllUsers] = useState({});
   const [adminTab, setAdminTab] = useState('rooms'); // 'rooms' | 'users'
   const [adminUserSubTab, setAdminUserSubTab] = useState('stats'); // 'stats' | 'directory'
@@ -85,33 +103,96 @@ function App() {
   const [selectedEmoji, setSelectedEmoji] = useState(null); // 選中的 Emoji
   const [copySuccess, setCopySuccess] = useState(false); // 複製密碼成功狀態
   const [isUsersLoading, setIsUsersLoading] = useState(false); // 管理員加載狀態
+  const [isSummariesLoading, setIsSummariesLoading] = useState(false); // 大廳加載狀態
+  const [lastSummariesUpdate, setLastSummariesUpdate] = useState(null); // 上次刷新時間
+  const [isTabActive, setIsTabActive] = useState(true); // 頁面是否在前景 (v3.3)
 
   const userHasSeenSelfInRoom = useRef(false);
+  const lastPresenceUpdateTs = useRef(0); // 頻率限制 (v3.2)
+  const isAdmin = currentUser?.uid === ADMIN_UID;
 
   const currentRoom = (currentRoomId && rooms && rooms[currentRoomId]) ? rooms[currentRoomId] : null;
   const currentBoss = (currentRoom && currentRoom.bossId && BOSSES[currentRoom.bossId])
     ? BOSSES[currentRoom.bossId]
     : BOSSES[selectedBossId] || Object.values(BOSSES)[0];
 
-  // 1. 初始化大廳摘要監聽 (超省流量)
   useEffect(() => {
-    const summariesRef = ref(db, 'roomSummaries');
-    return onValue(summariesRef, (snapshot) => {
-      setRoomSummaries(snapshot.val() || {});
-    });
-  }, []);
+    const handleVisibilityChange = () => {
+      const active = document.visibilityState === 'visible';
+      setIsTabActive(active);
+      if (!active && currentUser) {
+        // 當分頁隱藏時，立刻發送一次離線標記 (v3.3)
+        const presenceRef = ref(db, `presence/${currentUser.uid}`);
+        update(presenceRef, { isOnline: false, lastSeen: Date.now() });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [currentUser]);
 
-  // 2. 當進入特定房間時，才開啟該房的詳情監聽 (精確投放)
+  const fetchRoomSummaries = async () => {
+    setIsSummariesLoading(true);
+    try {
+      const snapshot = await get(ref(db, 'roomSummaries'));
+      setRoomSummaries(snapshot.val() || {});
+      setLastSummariesUpdate(Date.now());
+    } catch (err) {
+      console.error("Failed to fetch room summaries:", err);
+    } finally {
+      setIsSummariesLoading(false);
+    }
+  };
+
+  // 1. 初始化大廳數據 (僅一次，大幅省流量 v3.2)
   useEffect(() => {
-    if (!currentRoomId) return;
-    const individualRoomRef = ref(db, `rooms/${currentRoomId}`);
-    return onValue(individualRoomRef, (snapshot) => {
+    if (view === 'lobby' && isTabActive) {
+      fetchRoomSummaries();
+    }
+  }, [view, isTabActive]);
+
+  // 2. 當進入特定房間時，採用分拆式監聽 (前景才會同步 v3.3)
+  useEffect(() => {
+    if (!currentRoomId || view !== 'room' || !isTabActive) return;
+    
+    // 將大節點拆成獨立監聽器，避免「一人改名、全站重抓」的問題
+    const baseRef = ref(db, `rooms/${currentRoomId}`);
+    
+    // 房間基本資訊與車長
+    const unsubRoom = onValue(baseRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        setRooms(prev => ({ ...prev, [currentRoomId]: data }));
+        setRooms(prev => ({ 
+          ...prev, 
+          [currentRoomId]: { ...(prev[currentRoomId] || {}), ...data } 
+        }));
       }
     });
-  }, [currentRoomId]);
+
+    return () => {
+      unsubRoom();
+    };
+  }, [currentRoomId, view, isTabActive]);
+
+  // 2.1 語音專用監聽器 (全天候開啟，含背景 v3.5)
+  useEffect(() => {
+    if (!currentRoomId || view !== 'room') return;
+    
+    // 專門監聽語音節點，體積極小，確保在後台也能通報
+    const alertRef = ref(db, `rooms/${currentRoomId}/voiceAlert`);
+    return onValue(alertRef, (snapshot) => {
+      const alert = snapshot.val();
+      if (alert && alert.ts > lastAlertTs.current) {
+        lastAlertTs.current = alert.ts;
+        const utterance = new SpeechSynthesisUtterance(alert.message);
+        const selectedVoice = availableVoices.find(v => v.voiceURI === voiceSettings.voiceURI);
+        if (selectedVoice) utterance.voice = selectedVoice;
+        utterance.rate = voiceSettings.rate;
+        utterance.pitch = voiceSettings.pitch;
+        utterance.lang = 'zh-TW';
+        window.speechSynthesis.speak(utterance);
+      }
+    });
+  }, [currentRoomId, view, voiceSettings, availableVoices]);
 
   useEffect(() => {
     localStorage.setItem('pikapi_voice_settings', JSON.stringify(voiceSettings));
@@ -159,10 +240,20 @@ function App() {
   };
 
   useEffect(() => {
-    // 監聽大廳連線狀態並同步心跳 (僅針對房間內成員)
+    // 3. 管理員名錄專用的在線狀態即時監聽 (僅前景同步 v3.3)
+    if (view === 'admin' && isAdmin && isTabActive) {
+      const globalPresenceRef = ref(db, 'presence');
+      return onValue(globalPresenceRef, (snapshot) => {
+        setPresenceData(snapshot.val() || {});
+      });
+    }
+  }, [view, isAdmin, isTabActive]);
+
+  useEffect(() => {
+    // 監聽大廳連線狀態並同步心跳 (僅針對在房間內的前景成員 v3.3)
     const connectedRef = ref(db, '.info/connected');
     const unsubscribe = onValue(connectedRef, (snap) => {
-      if (snap.val() === true && currentRoomId && userName && view === 'room') {
+      if (snap.val() === true && currentRoomId && userName && view === 'room' && isTabActive) {
         const memberRef = ref(db, `rooms/${currentRoomId}/members/${userName}`);
         update(memberRef, { 
           isOnline: true, 
@@ -171,7 +262,7 @@ function App() {
       }
     });
     return () => unsubscribe();
-  }, [currentRoomId, userName, view]);
+  }, [currentRoomId, userName, view, isTabActive]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -196,13 +287,12 @@ function App() {
         // 優先使用資料庫中的資料 (v2.2)
         const combinedUser = { 
           ...user, 
-          photoURL: userData.photoURL || user.photoURL, 
+          photoURL: userData.photoURL || '🐶', 
           displayName: userData.displayName || user.displayName,
           profile: userData 
         };
         setCurrentUser(combinedUser);
         setUserName(userData.displayName || user.displayName);
-        
         // 權限守衛 (v4.9)
         if (user.uid !== ADMIN_UID && userData.status !== 'approved') {
           setView('landing');
@@ -239,8 +329,31 @@ function App() {
     });
     return () => unsubscribe();
   }, [view, rooms, currentRoomId]); // Added session logic dependency
+  
+  // 終極全域心跳控流 (v3.3)
+  useEffect(() => {
+    if (!currentUser || !isTabActive) return;
 
-  // 全域廣播監聽與語音報讀
+    const updatePresence = () => {
+      if (Date.now() - lastPresenceUpdateTs.current > 60000) {
+        const presenceRef = ref(db, `presence/${currentUser.uid}`);
+        update(presenceRef, { 
+          isOnline: true, 
+          lastSeen: Date.now(),
+          displayName: currentUser.displayName || '無名英雄'
+        });
+        const disconnectRef = onDisconnect(presenceRef);
+        disconnectRef.update({ isOnline: false, lastSeen: Date.now() });
+        lastPresenceUpdateTs.current = Date.now();
+      }
+    };
+
+    updatePresence(); // 立即同步一次
+    const interval = setInterval(updatePresence, 30000); // 每一分鐘檢查一次 (搭配防抖)
+    return () => clearInterval(interval);
+  }, [currentUser, isTabActive]);
+
+  // 全域廣播監聽與語音報讀 (全天候支援 v3.5)
   useEffect(() => {
     const broadcastRef = ref(db, 'globalBroadcast');
     const unsubscribe = onValue(broadcastRef, (snap) => {
@@ -253,12 +366,12 @@ function App() {
         speech.rate = 0.9;
         window.speechSynthesis.speak(speech);
 
-        // 5秒後自動隱藏橫幅
+        // 8秒後自動隱藏橫幅
         setTimeout(() => setGlobalBroadcast(null), 8000);
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, []); // 移除 isTabActive 限制，大廳也能聽全域公告
 
   // 檢查是否被踢出房間 (已整合至下方 v2.3 機制，此處移除以避免誤判)
 
@@ -334,20 +447,7 @@ function App() {
   }, []);
 
   const lastAlertTs = useRef(Date.now());
-  useEffect(() => {
-    if (!currentRoomId || !rooms[currentRoomId] || view !== 'room') return;
-    const alert = rooms[currentRoomId].voiceAlert;
-    if (alert && alert.ts > lastAlertTs.current) {
-      lastAlertTs.current = alert.ts;
-      const utterance = new SpeechSynthesisUtterance(alert.message);
-      const selectedVoice = availableVoices.find(v => v.voiceURI === voiceSettings.voiceURI);
-      if (selectedVoice) utterance.voice = selectedVoice;
-      utterance.rate = voiceSettings.rate;
-      utterance.pitch = voiceSettings.pitch;
-      utterance.lang = 'zh-TW';
-      window.speechSynthesis.speak(utterance);
-    }
-  }, [rooms, currentRoomId, view, voiceSettings, availableVoices]);
+  // 已移至 2.1 語音專用監聽器，此處移除以節省流量 (v3.5)
 
   const handleTestVoice = () => {
     const utterance = new SpeechSynthesisUtterance("PiKaPi 戰略通報測試。");
@@ -888,7 +988,7 @@ function App() {
                         {Object.values(allUsers).filter(u => u.status === 'pending').map(pu => (
                           <div key={pu.uid} className="pending-card">
                             <div className="p-user-info">
-                              <img src={pu.photoURL || 'https://via.placeholder.com/40'} alt="avatar" />
+                              {renderAvatar(pu.photoURL, "p-avatar")}
                               <div className="p-text">
                                 <span className="p-name">{pu.displayName}</span>
                                 <span className="p-uid">{pu.uid}</span>
@@ -930,13 +1030,13 @@ function App() {
                             .map(u => (
                             <tr key={u.uid}>
                               <td className="admin-user-cell">
-                                <img src={u.photoURL || 'https://via.placeholder.com/30'} alt="avatar" className="admin-mini-avatar" />
+                                {renderAvatar(u.photoURL, "admin-mini-avatar")}
                                 <span>{u.nickname || u.displayName}</span>
                               </td>
                               <td className="admin-uid code-font" style={{wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px'}}>{u.uid}</td>
                               <td>
                                 <span className={`status-dot ${u.isOnline ? 'online' : 'offline'}`}></span>
-                                {u.isOnline ? '在線上' : '離線'}
+                                {u.isOnline ? '線上' : '離線'}
                               </td>
                               <td className="location-text">{getUserCurrentLocation(u.nickname || u.displayName)}</td>
                               <td className="date-text">{u.createdAt ? new Date(u.createdAt).toLocaleString([], {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit'}) : '早期成員'}</td>
@@ -988,6 +1088,18 @@ function App() {
             <div className="landing-content glass-panel">
               <div className="brand-badge">Step 2: 權限申請</div>
               <h1>歡迎來到 PiKaPi 指揮部</h1>
+              {currentUser && (
+                <div className="nav-profile-control">
+                  {currentUser.uid === ADMIN_UID && view !== 'admin' && (
+                    <button className="btn-admin-entrance" onClick={() => setView('admin')}>🛡️ 指揮部</button>
+                  )}
+                  <div className="user-profile-summary">
+                    <span className="user-welcome">Hi, {userName || '英雄'}</span>
+                    {renderAvatar(currentUser.photoURL, "header-avatar")}
+                  </div>
+                  <button className="logout-btn" onClick={handleLogout}>登出</button>
+                </div>
+              )}
               <p className="landing-subtitle">請點擊下方按鈕向管理員提交「使用申請」，<br/>審核通過後即可開始紀錄。 v2.1</p>
               <button className="apply-btn-premium" onClick={applyForMembership}>
                 🚀 提交加入申請
@@ -1135,7 +1247,21 @@ function App() {
                   ))}
                 </select>
               </div>
-              <button className="create-btn" onClick={() => setShowCreateModal(true)}>創建打王房間</button>
+              <div className="lobby-btn-group">
+                <button className="create-btn" onClick={() => setShowCreateModal(true)}>創建打王房間</button>
+                <button 
+                  className={`refresh-btn ${isSummariesLoading ? 'loading' : ''}`} 
+                  onClick={fetchRoomSummaries}
+                  title="刷新房況"
+                >
+                  <span className="refresh-icon">🔄</span>
+                  {lastSummariesUpdate && (
+                    <small className="last-update-ts">
+                      上次更新於 {new Date(lastSummariesUpdate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}
+                    </small>
+                  )}
+                </button>
+              </div>
             </section>
             <section className="room-list">
               <h3>房間列表 - {BOSSES[selectedBossId].name}</h3>
@@ -1441,11 +1567,7 @@ function App() {
               )}
               <span className="user-greeting">Hi, {userName}</span>
               <div className="header-avatar-v9" onClick={() => setView('profile')}>
-                {currentUser.profile?.photoURL?.length <= 4 ? (
-                  <span className="avatar-emoji-header">{currentUser.profile.photoURL}</span>
-                ) : (
-                  <img src={currentUser.profile?.photoURL || 'https://via.placeholder.com/40'} alt="avatar" />
-                )}
+                {renderAvatar(currentUser.photoURL, "header-avatar-img", { width: '100%', height: '100%' })}
               </div>
               <button className="btn-danger logout-btn" onClick={handleLogout}>登出</button>
             </div>
