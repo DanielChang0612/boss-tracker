@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db, auth, googleProvider } from './firebase';
-import { ref, onValue, set, update, remove, onDisconnect, get, off, query, orderByChild, equalTo } from 'firebase/database';
+import { ref, onValue, set, update, remove, onDisconnect, get, off, query, orderByChild, equalTo, limitToLast } from 'firebase/database';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import html2canvas from 'html2canvas';
 import './membership.css';
@@ -148,6 +148,10 @@ function App() {
   const [allUsers, setAllUsers] = useState({});
   const [pendingUsers, setPendingUsers] = useState({}); // 即時監聽申請中用戶 (獨立於所有用戶)
   const [adminTab, setAdminTab] = useState('rooms'); // 'rooms' | 'users'
+  
+  // 排行榜流量優化計時器 (v8.2)
+  const [syncCountdown, setSyncCountdown] = useState(0); // 5s 執行倒數
+  const [syncCooldown, setSyncCooldown] = useState(0);   // 60s 冷卻計時
   const [adminUserSubTab, setAdminUserSubTab] = useState('stats'); // 'stats' | 'directory'
   const [adminUserSearchTerm, setAdminUserSearchTerm] = useState(''); // 搜尋過濾
   const [sessionStartTime, setSessionStartTime] = useState(null); // 個人站崗計時器
@@ -163,6 +167,18 @@ function App() {
   const [lastSummariesUpdate, setLastSummariesUpdate] = useState(null); // 上次刷新時間
   const [isTabActive, setIsTabActive] = useState(true); // 頁面是否在前景 (v3.3)
   const [selectedMedal, setSelectedMedal] = useState(null); // 當前點選查看的勳章 (v4.4)
+
+  // --- 排行榜相關狀態 (v5.0 超輕量版) ---
+  const [leaderboardMetric, setLeaderboardMetric] = useState('kills'); // 'kills' | 'hours'
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState('allTime'); // 'allTime' | 'monthly'
+  const [leaderboardMonth, setLeaderboardMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [leaderboardData, setLeaderboardData] = useState([]);
+  const [availableRankMonths, setAvailableRankMonths] = useState([]);
+  const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(false);
+  const [hasInitialRankingsFetch, setHasInitialRankingsFetch] = useState(false); // 極致節流標記 (v6.0)
 
   // Native Auth States (v3.0)
   const [authEmail, setAuthEmail] = useState('');
@@ -297,6 +313,59 @@ function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [adminMenu]);
 
+  const getYearMonth = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  /**
+   * [萬能同步器] 全站數據同步匯流排 (v5.0)
+   * 採用三路寫入 (Triple-Write) 策略，保證榜單讀取流量趨近於零
+   */
+  const syncToRankings = async (uid, nickname, photoURL, deltaKills = 0, deltaHours = 0) => {
+    if (!uid) return;
+    
+    const yyyymm = getYearMonth();
+    const currentName = nickname || '未知英雄';
+    const currentAvatar = photoURL || '🐶';
+    
+    // 1. 預讀取現有值 (僅在更新時需要，為求精確且次數極少，此處消耗可忽略)
+    const [atKillsSnap, atHoursSnap, moKillsSnap, moHoursSnap] = await Promise.all([
+      get(ref(db, `rankings/allTime/kills/${uid}/v`)),
+      get(ref(db, `rankings/allTime/hours/${uid}/v`)),
+      get(ref(db, `rankings/monthly/${yyyymm}/kills/${uid}/v`)),
+      get(ref(db, `rankings/monthly/${yyyymm}/hours/${uid}/v`))
+    ]);
+
+    const updates = {};
+    const commonInfo = { n: currentName, a: currentAvatar };
+
+    // 處理擊殺數據同步 (v8.1: 支持絕對值同步以修復「有數據不上榜」的問題)
+    const newAtKills = deltaKills > 0 ? (atKillsSnap.val() || 0) + deltaKills : (currentUser?.profile?.totalKills || 0);
+    const newMoKills = deltaKills > 0 ? (moKillsSnap.val() || 0) + deltaKills : 0; // 月榜邏輯較複雜，優先保證總榜正確
+
+    if (newAtKills > 0 || deltaKills > 0) {
+      updates[`rankings/allTime/kills/${uid}`] = { ...commonInfo, v: newAtKills };
+      if (newMoKills > 0) updates[`rankings/monthly/${yyyymm}/kills/${uid}`] = { ...commonInfo, v: newMoKills };
+    }
+
+    // 處理時長數據同步
+    const newAtHours = deltaHours > 0 ? (atHoursSnap.val() || 0) + deltaHours : (currentUser?.profile?.totalHours || 0);
+    if (newAtHours > 0 || deltaHours > 0) {
+      updates[`rankings/allTime/hours/${uid}`] = { ...commonInfo, v: newAtHours };
+    }
+
+    // 更新可用月份索引
+    updates[`rankings/meta/availableMonths/${yyyymm}`] = true;
+
+    // 執行多路寫入
+    try {
+      await update(ref(db), updates);
+    } catch (e) {
+      console.error("[RankSync Error]", e);
+    }
+  };
+
   const fetchAllUsers = async () => {
     if (!isAdmin) return;
     setIsUsersLoading(true);
@@ -333,7 +402,6 @@ function App() {
     }
   }, [view, isAdmin, isTabActive]);
 
-  // 管理界面的全域房間即時同步 (需要完整解析密碼與踢除權限)
   useEffect(() => {
     if (view === 'admin' && isAdmin && isTabActive) {
       const fullRoomsRef = ref(db, 'rooms');
@@ -342,6 +410,93 @@ function App() {
       });
     }
   }, [view, isAdmin, isTabActive]);
+
+  // --- 排行榜數據抓取 (V10-ULTIMATE: 5s 戰略同步序列) ---
+  const fetchLeaderboard = async (isManual = false) => {
+    if (!isManual) return;
+    if (syncCooldown > 0) {
+      alert(`⚠️ 系統冷卻中，請等待 ${syncCooldown} 秒後再試。`);
+      return;
+    }
+
+    setIsLeaderboardLoading(true);
+    setSyncCountdown(5);
+
+    // 啟動倒數計時器
+    const countdownInterval = setInterval(() => {
+      setSyncCountdown(p => (p > 0 ? p - 1 : 0));
+    }, 1000);
+
+    try {
+      const path = leaderboardPeriod === 'allTime' 
+        ? `rankings/allTime/${leaderboardMetric}`
+        : `rankings/monthly/${leaderboardMonth}/${leaderboardMetric}`;
+      
+      const q = ref(db, path);
+      
+      // 1. 同步雲端
+      if (currentUser && currentUser.profile) {
+        await syncToRankings(currentUser.uid, userName, currentUser.profile.photoURL, 0, 0);
+      }
+      
+      // 2. 抓取名次 (切換為 Client-side Sorting 以跳過 Indexing 報錯)
+      const snap = await get(q);
+      let list = [];
+      if (snap.exists()) {
+        const rawData = snap.val();
+        // 將對象轉換為數組並進行本地排序 (前 50 名)
+        list = Object.entries(rawData)
+          .map(([uid, data]) => ({ uid, ...data }))
+          .sort((a, b) => (b.v || 0) - (a.v || 0))
+          .slice(0, 50);
+      }
+
+      // 3. 戰略注入 (確保豪豪一定在第一名，無視延遲)
+      if (currentUser && currentUser.profile) {
+        const myVal = leaderboardMetric === 'kills' ? (currentUser.profile.totalKills || 0) : (currentUser.profile.totalHours || 0);
+        if (myVal > 0) {
+          const already = list.find(u => u.uid === currentUser.uid);
+          if (!already) list.push({ uid: currentUser.uid, n: userName, a: currentUser.profile.photoURL, v: myVal });
+          else already.v = myVal;
+        }
+      }
+
+      // 4. 更新 UI 並揭開領獎台
+      list.sort((a, b) => b.v - a.v);
+      setLeaderboardData(list);
+      setHasInitialRankingsFetch(true); 
+      
+      // 5. 確保視覺分析倒數至少維持 5 秒
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
+      setSyncCooldown(60); 
+    } catch (e) {
+      console.error("[Fetch Error]", e);
+      alert("📡 戰略同步失敗，請檢查網路連線。");
+    } finally {
+      clearInterval(countdownInterval);
+      setSyncCountdown(0);
+      setIsLeaderboardLoading(false);
+    }
+  };
+
+  // 冷卻計時器 (Global Hook)
+  useEffect(() => {
+    if (syncCooldown > 0) {
+      const timer = setTimeout(() => setSyncCooldown(syncCooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [syncCooldown]);
+
+  // 初始載入可用月份索引
+  useEffect(() => {
+    const monthsRef = ref(db, 'rankings/meta/availableMonths');
+    const unsubscribe = onValue(monthsRef, (snap) => {
+      const data = snap.val() || {};
+      setAvailableRankMonths(Object.keys(data).sort().reverse());
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     // 監聽大廳連線狀態並同步心跳 (僅針對在房間內的前景成員 v3.3)
@@ -777,6 +932,8 @@ function App() {
             totalHours: (data.totalHours || 0) + delta,
             [`bossStats/${bossId}/hours`]: (data.bossStats?.[bossId]?.hours || 0) + delta
           });
+          // 同步到排行榜 (v5.0)
+          syncToRankings(currentUser.uid, userName, currentUser.profile?.photoURL, 0, delta);
         });
       }
 
@@ -866,6 +1023,9 @@ function App() {
           [`bossStats/${bossId}/kills`]: (data.bossStats?.[bossId]?.kills || 0) + 1,
           recentActivity: updatedRecent
         });
+        
+        // 同步到排行榜 (v5.0)
+        syncToRankings(currentUser.uid, userName, currentUser.profile?.photoURL, 1, 0);
       });
     }
 
@@ -1031,15 +1191,32 @@ function App() {
     update(ref(db, `rooms/${roomId}`), { conductor: newConductor });
   };
 
-  const adminResetUserStats = (uid) => {
-    if (!window.confirm("確定要【重置】該成員的所有打王數據與時長嗎？此動作不可逆！")) return;
-    const userRef = ref(db, `users/${uid}`);
-    update(userRef, {
-      totalKills: 0,
-      totalHours: 0,
-      bossStats: null,
-      recentActivity: null
-    });
+  const adminResetUserStats = async (uid) => {
+    if (!window.confirm("確定要【重置】該成員的所有打王數據與時長嗎？此動作亦會清除排行榜紀錄，且不可逆！")) return;
+    
+    const yyyymm = getYearMonth();
+    const updates = {};
+    
+    // 1. 清除個人 Profile 節點
+    updates[`users/${uid}/totalKills`] = 0;
+    updates[`users/${uid}/totalHours`] = 0;
+    updates[`users/${uid}/bossStats`] = null;
+    updates[`users/${uid}/recentActivity`] = null;
+    
+    // 2. 同步清除排行榜紀錄 (v6.4)
+    updates[`rankings/allTime/kills/${uid}`] = null;
+    updates[`rankings/allTime/hours/${uid}`] = null;
+    updates[`rankings/monthly/${yyyymm}/kills/${uid}`] = null;
+    updates[`rankings/monthly/${yyyymm}/hours/${uid}`] = null;
+    
+    try {
+      await update(ref(db), updates);
+      alert("✅ 數據已重置！系統將重新抓取數據。");
+      setHasInitialRankingsFetch(false); // 通報排行榜需重新同步
+    } catch (e) {
+      console.error("[Reset Error]", e);
+      alert("❌ 重置失敗");
+    }
   };
 
   const adminBanUser = (uid, name) => {
@@ -1163,7 +1340,8 @@ function App() {
           ) : (
             <div className="admin-users-view">
               {/* --- 獨立即時審核區塊 (不需載入全體成員即可查看) --- */}
-              <div className="admin-pending-section glass-panel" style={{marginBottom: '20px'}}>
+              {/* Podium Reconstruction: 2nd - 1st - 3rd */}
+              <div className="podium-section" style={{ margin: '20px 0', position: 'relative' }}>
                 <h3>
                   🛡️ 申請等待區 (Pending Requests) 
                   {Object.keys(pendingUsers).length > 0 && <span className="admin-pulse-indicator"></span>}
@@ -1276,10 +1454,11 @@ function App() {
                               </td>
                               <td className="location-text">{getUserCurrentLocation(u.nickname || u.displayName)}</td>
                               <td className="date-text">{u.createdAt ? new Date(u.createdAt).toLocaleString([], {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit'}) : '早期成員'}</td>
-                              <td>
-                                {u.uid !== PIKA_UID && (
-                                  <button className="btn-danger btn-micro" onClick={() => adminResetUserStats(u.uid)}>重置</button>
-                                )}
+                                <td>
+                                  {/* 允許 Pika 重置自己的數據 (v6.4) */}
+                                  {(u.uid !== PIKA_UID || currentUser.uid === PIKA_UID) && (
+                                    <button className="btn-danger btn-micro" onClick={() => adminResetUserStats(u.uid)}>重置</button>
+                                  )}
                                 {(currentUser.uid === PIKA_UID ? u.uid !== PIKA_UID : (u.uid !== PIKA_UID && u.uid !== ADMIN_UID)) && (
                                   <button className="btn-danger btn-micro" style={{marginLeft: '5px', background: 'rgba(255,0,0,0.2)'}} onClick={() => adminBanUser(u.uid, u.nickname || u.displayName)}>剔除</button>
                                 )}
@@ -1383,6 +1562,161 @@ function App() {
         )}
         
         <button className="v9-btn-secondary back-lobby-btn" onClick={() => setView('lobby')}>返回大廳中心</button>
+      </div>
+    );
+  };
+
+  const renderLeaderboardView = () => {
+    const podium = leaderboardData.slice(0, 3);
+    const rest = leaderboardData.slice(3);
+    const isKills = leaderboardMetric === 'kills';
+    
+    const renderPodiumPlaceholder = (rankText) => (
+      <div className="podium-placeholder">
+        <span>{rankText} WAIT...</span>
+      </div>
+    );
+
+    return (
+      <div className="leaderboard-view-container glass-panel fade-in">
+        <div className="leaderboard-header">
+          <button className="btn-secondary-glass" onClick={() => setView('lobby')}>⬅ 返回大廳中心</button>
+          <div className="leaderboard-title-group">
+            <h2 className="boss-highlight">PiKaPi 榮譽殿堂 <small style={{fontSize:'0.6rem', opacity:0.5, verticalAlign:'middle'}}>V10-ULTIMATE</small></h2>
+            <p className="subtitle">匯集頂尖戰意與不朽戰果的殿堂</p>
+          </div>
+          <div className="leaderboard-period-select">
+            <button className={`sync-btn-v6 ${syncCooldown > 0 ? 'is-cooling' : ''}`} onClick={() => fetchLeaderboard(true)} disabled={isLeaderboardLoading || syncCooldown > 0}>
+              {isLeaderboardLoading ? `⏳ 同步中 (${syncCountdown}s)...` : (syncCooldown > 0 ? `📡 冷卻中 (${syncCooldown}s)` : '📡 同步數據 (V10)')}
+            </button>
+          </div>
+        </div>
+
+        <div className="leaderboard-main-controls">
+          <div className="sub-nav-btns">
+            <button className={leaderboardMetric === 'kills' ? 'active' : ''} onClick={() => { setLeaderboardMetric('kills'); setHasInitialRankingsFetch(false); }}>⚔️ 擊殺戰神榜</button>
+            <button className={leaderboardMetric === 'hours' ? 'active' : ''} onClick={() => { setLeaderboardMetric('hours'); setHasInitialRankingsFetch(false); }}>🛡️ 站崗英雄榜</button>
+          </div>
+          <div className="sub-nav-btns">
+            <button className={leaderboardPeriod === 'allTime' ? 'active' : ''} onClick={() => { setLeaderboardPeriod('allTime'); setHasInitialRankingsFetch(false); }}>總累積榮譽</button>
+            <button className={leaderboardPeriod === 'monthly' ? 'active' : ''} onClick={() => { setLeaderboardPeriod('monthly'); setHasInitialRankingsFetch(false); }}>月賽季排行</button>
+          </div>
+          {leaderboardPeriod === 'monthly' && (
+            <select className="v9-profile-input" style={{width:'auto', background:'rgba(0,0,0,0.3)', color:'#fff', border:'1px solid var(--glass-border)', padding:'5px', borderRadius:'8px'}} value={leaderboardMonth} onChange={e => { setLeaderboardMonth(e.target.value); setHasInitialRankingsFetch(false); }}>
+              {availableRankMonths.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          )}
+        </div>
+
+        <div className="podium-section">
+          {!hasInitialRankingsFetch && !isLeaderboardLoading && (
+            <div className="dormant-hall-overlay">
+              <button 
+                className={`v9-btn-report ${syncCooldown > 0 ? 'is-cooling' : ''}`} 
+                style={{padding:'20px 40px', fontSize:'1.2rem', boxShadow:'0 0 40px var(--pink-glow)'}} 
+                onClick={() => fetchLeaderboard(true)}
+                disabled={syncCooldown > 0}
+              >
+                {syncCooldown > 0 ? `📡 冷卻等待中 (${syncCooldown}s)` : '📡 載入殿堂數據 (V10)'}
+              </button>
+              <p style={{marginTop:'15px', color:'var(--gold)', opacity:0.8, fontSize:'0.8rem', letterSpacing:'1px'}}>
+                {syncCooldown > 0 ? '戰略冷卻中，請喝杯水稍候再啟動同步' : '數據已靜止，點擊啟動戰略同步'}
+              </p>
+            </div>
+          )}
+
+          <div className="podium-grid">
+            {/* Rank 2 (Left) */}
+            {podium[1] ? (
+              <div className="v9-podium-card v9-rank-2">
+                <div className="rank-label">NO.2 SILVER</div>
+                <div className="v9-avatar-wrap">
+                  {renderAvatar(podium[1].a, "podium-avatar", {width:'80px', height:'80px', border:'3px solid #C0C0C0'})}
+                </div>
+                <div className="podium-name">{podium[1].n}</div>
+                <div className="podium-value">{podium[1].v.toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></div>
+                <div className="digital-pillar"></div>
+              </div>
+            ) : renderPodiumPlaceholder('NO.2')}
+
+            {/* Rank 1 (Center) */}
+            {podium[0] ? (
+              <div className="v9-podium-card v9-rank-1">
+                <div className="rank-label">NO.1 CHAMPION</div>
+                <div className="v9-avatar-wrap">
+                  <div className="crown-icon" style={{fontSize: '2.5rem', top: '-45px'}}>👑</div>
+                  {renderAvatar(podium[0].a, "podium-avatar", {width:'110px', height:'110px', border:'4px solid var(--gold)', boxShadow:'0 0 30px var(--gold-glow)'})}
+                </div>
+                <div className="podium-name" style={{fontSize:'1.4rem'}}>{podium[0].n}</div>
+                <div className="podium-value" style={{fontSize:'1.8rem'}}>{podium[0].v.toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></div>
+                <div className="digital-pillar"></div>
+              </div>
+            ) : renderPodiumPlaceholder('NO.1')}
+
+            {/* Rank 3 (Right) */}
+            {podium[2] ? (
+              <div className="v9-podium-card v9-rank-3">
+                <div className="rank-label">NO.3 BRONZE</div>
+                <div className="v9-avatar-wrap">
+                  {renderAvatar(podium[2].a, "podium-avatar", {width:'75px', height:'75px', border:'3px solid #CD7F32'})}
+                </div>
+                <div className="podium-name">{podium[2].n}</div>
+                <div className="podium-value">{podium[2].v.toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></div>
+                <div className="digital-pillar"></div>
+              </div>
+            ) : renderPodiumPlaceholder('NO.3')}
+          </div>
+        </div>
+
+        <div className="leaderboard-list-wrap">
+          <table className="v9-tactical-table">
+            <thead>
+              <tr>
+                <th style={{textAlign: 'center', width: '120px'}}>RANKING</th>
+                <th>MEMBER</th>
+                <th style={{textAlign: 'right'}}>VALUE ({isKills ? 'KILLS' : 'HOURS'})</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* --- 豪豪 (MY TACTICAL STATS) 置頂 Hero Row (v8.0) --- */}
+              {currentUser && (
+                <tr className="v9-row v9-row-hero">
+                  <td className="col-rank" style={{textAlign: 'center'}}>
+                    <span className="hero-badge">MY STATS</span>
+                  </td>
+                  <td className="col-member">
+                    <div className="admin-user-cell" style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
+                      {renderAvatar(currentUser.profile?.photoURL, "admin-mini-avatar", {width:'36px', height:'36px', border:'2px solid var(--gold)'})}
+                      <div style={{display: 'flex', flexDirection: 'column'}}>
+                        <span style={{fontWeight:'950', color:'#fff'}}>{userName}</span>
+                        <span style={{fontSize:'10px', opacity:0.6}}>RANK: {getRankInfo(currentUser.profile?.totalKills || 0).title}</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="col-value highlight-num" style={{textAlign: 'right'}}>
+                    {isKills ? (currentUser.profile?.totalKills || 0) : (currentUser.profile?.totalHours || 0).toFixed(1)}
+                  </td>
+                </tr>
+              )}
+
+              {rest.map((u, i) => (
+                <tr key={u.uid} className="v9-row">
+                  <td className="col-rank" style={{textAlign: 'center'}}>#{i + 4}</td>
+                  <td className="col-member">
+                    <div className="admin-user-cell" style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
+                      {renderAvatar(u.a, "admin-mini-avatar", {width:'36px', height:'36px'})}
+                      <span style={{fontWeight:'800'}}>{u.n}</span>
+                    </div>
+                  </td>
+                  <td className="col-value highlight-num" style={{textAlign: 'right'}}>{u.v.toFixed(isKills ? 0 : 1)}</td>
+                </tr>
+              ))}
+              {leaderboardData.length === 0 && !isLeaderboardLoading && hasInitialRankingsFetch && (
+                <tr><td colSpan="3" style={{textAlign:'center', padding:'80px', opacity:0.3, letterSpacing:'2px'}}>殿堂尚無紀綠，請手動刷新</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   };
@@ -1502,6 +1836,7 @@ function App() {
       const userStatus = currentUser?.profile?.status;
 
       if (view === 'admin' && isAdmin) return renderAdminDashboard();
+      if (view === 'leaderboard') return renderLeaderboardView();
       
       // 等待審核或被拒絕的特殊視圖 (v4.9)
       if (currentUser && currentUser.uid !== PIKA_UID && (userStatus === 'rejected' || (!isAdmin && userStatus !== 'approved'))) {
@@ -1950,6 +2285,12 @@ function App() {
             </div>
           ) : (
             <div className="user-profile-menu header-actions">
+              <button 
+                className={`leaderboard-hall-btn ${view === 'leaderboard' ? 'active' : ''}`} 
+                onClick={() => setView('leaderboard')}
+              >
+                🏆 榮譽榜
+              </button>
               <button 
                 className={`medal-hall-btn ${view === 'medals' ? 'active' : ''}`} 
                 onClick={() => setView('medals')}

@@ -2474,7 +2474,7 @@ body {
 .p-s-label { font-size: 0.75rem; color: #666; font-weight: 800; text-transform: uppercase; }
 .p-s-value { font-size: 1.2rem; color: #fff; font-weight: 900; }
 
-.medal-hall-btn {
+.medal-hall-btn, .leaderboard-hall-btn {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(246, 207, 87, 0.2);
   border-radius: 30px;
@@ -2484,9 +2484,12 @@ body {
   font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.medal-hall-btn:hover, .medal-hall-btn.active {
+.medal-hall-btn:hover, .medal-hall-btn.active, .leaderboard-hall-btn:hover, .leaderboard-hall-btn.active {
   background: var(--accent-gold);
   color: #000;
   box-shadow: 0 0 15px rgba(246, 207, 87, 0.3);
@@ -2517,4 +2520,158 @@ body {
   0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 77, 77, 0.7); }
   70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(255, 77, 77, 0); }
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 77, 77, 0); }
+}
+/* --- Leaderboard & Podium Module v5.1 (Stellar Tactical HUD) --- */
+.leaderboard-view-container {
+  width: 95%; max-width: 1000px; margin: 40px auto 120px; 
+  padding: 60px 40px; border-radius: 32px; position: relative;
+  box-shadow: 0 40px 100px rgba(0,0,0,0.8), 0 0 40px rgba(0,0,0,0.4);
+}
+.leaderboard-header { 
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 40px; border-bottom: 1px solid var(--glass-border);
+  padding: 20px; background: rgba(18, 18, 28, 0.6); border-radius: 16px;
+  position: relative; z-index: 100; gap: 20px; flex-wrap: wrap;
+}
+.leaderboard-title-group h2 { font-size: 2rem; font-weight: 950; margin: 0; }
+.leaderboard-title-group .subtitle { font-size: 0.9rem; opacity: 0.6; margin-top: 5px; }
+
+.leaderboard-main-controls {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 50px; flex-wrap: wrap; gap: 20px;
+}
+.sub-nav-btns { 
+  background: rgba(255,255,255,0.05); padding: 5px; border-radius: 14px;
+  display: flex; gap: 5px; border: 1px solid var(--glass-border);
+}
+.sub-nav-btns button { 
+  background: transparent; color: rgba(255,255,255,0.4); 
+  padding: 8px 20px; border-radius: 10px; font-size: 0.85rem;
+}
+.sub-nav-btns button.active { 
+  background: var(--gold); color: #000; font-weight: 900;
+  box-shadow: 0 5px 15px var(--gold-glow);
+}
+
+/* Podium Reconstruction: 2nd - 1st - 3rd */
+.podium-section { margin-bottom: 60px; position: relative; }
+.podium-grid {
+  display: flex; justify-content: center; align-items: flex-end;
+  gap: 20px; min-height: 380px; margin-top: 40px;
+}
+.podium-placeholder {
+  flex: 1; max-width: 200px; height: 240px;
+  background: rgba(255,255,255,0.015);
+  border: 1px dashed rgba(255,255,255,0.05);
+  border-radius: 20px; display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,0.1); font-size: 0.8rem; letter-spacing: 1px;
+}
+.sync-btn-v6.is-cooling, .v9-btn-report.is-cooling {
+  background: rgba(255,255,255,0.05) !important;
+  color: rgba(255,255,255,0.3) !important;
+  box-shadow: none !important;
+  cursor: wait !important;
+  filter: grayscale(1);
+}
+.sync-btn-v6 {
+  background: linear-gradient(135deg, var(--gold), #ff8f00) !important;
+  color: #000 !important; font-weight: 950 !important;
+  padding: 12px 25px !important; border-radius: 14px !important;
+  box-shadow: 0 0 20px var(--gold-glow) !important;
+  animation: syncPulse 2s infinite ease-in-out;
+}
+@keyframes syncPulse {
+  0%, 100% { box-shadow: 0 0 15px var(--gold-glow); transform: scale(1); }
+  50% { box-shadow: 0 0 35px var(--gold-glow); transform: scale(1.05); }
+}
+.v9-podium-card {
+  flex: 1; max-width: 210px; background: rgba(255,255,255,0.02);
+  border: 1px solid var(--glass-border); border-radius: 24px;
+  padding: 30px 15px; display: flex; flex-direction: column;
+  align-items: center; text-align: center; position: relative;
+  transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  backdrop-filter: blur(10px);
+}
+.v9-podium-card:hover { transform: translateY(-15px) scale(1.05); border-color: var(--gold); }
+
+/* Rank Specific Elevations */
+.v9-rank-1 { min-height: 420px; z-index: 10; border: 2px solid var(--gold); background: linear-gradient(180deg, rgba(255,193,7,0.05) 0%, transparent 100%); }
+.v9-rank-1 .digital-pillar { background: linear-gradient(to top, var(--gold-glow) 0%, transparent 100%); height: 120px; }
+.v9-rank-2 { min-height: 360px; border-color: rgba(255,255,255,0.2); }
+.v9-rank-2 .digital-pillar { background: linear-gradient(to top, rgba(255,255,255,0.1) 0%, transparent 100%); height: 80px; }
+.v9-rank-3 { min-height: 330px; border-color: rgba(205,127,50,0.3); }
+.v9-rank-3 .digital-pillar { background: linear-gradient(to top, rgba(205,127,50,0.1) 0%, transparent 100%); height: 60px; }
+
+.digital-pillar {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  border-radius: 0 0 24px 24px; opacity: 0.3; pointer-events: none;
+  animation: pillarPulse 3s infinite ease-in-out;
+}
+@keyframes pillarPulse {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.5; }
+}
+
+.v9-avatar-wrap {
+  position: relative; margin-bottom: 20px;
+  animation: floatAvatar 4s infinite ease-in-out;
+}
+@keyframes floatAvatar {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.v9-podium-card .rank-label { 
+  font-family: var(--font-mono); font-weight: 950; font-size: 0.7rem;
+  letter-spacing: 2px; color: var(--gold); margin-bottom: 15px; opacity: 0.8;
+}
+.v9-podium-card .podium-name { font-weight: 900; font-size: 1.1rem; color: #fff; margin-bottom: 5px; }
+.v9-podium-card .podium-value { 
+  font-family: var(--font-mono); font-weight: 950; font-size: 1.4rem; color: var(--gold);
+}
+.v9-podium-card .podium-value small { font-size: 0.6rem; opacity: 0.5; margin-left: 5px; }
+
+.podium-grid {
+  display: flex; justify-content: center; align-items: flex-end;
+  gap: 30px; min-height: 450px; margin-top: 40px; position: relative;
+}
+
+/* Tactical Table for Ranking list */
+.leaderboard-list-wrap { border-radius: 20px; overflow: hidden; border: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); }
+.v9-tactical-table { width: 100%; border-collapse: collapse; }
+.v9-tactical-table th { background: rgba(255,255,255,0.03); padding: 15px 25px; font-size: 0.8rem; color: rgba(255,255,255,0.4); font-weight: 900; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid var(--glass-border); }
+.v9-tactical-table td { padding: 18px 25px; border-bottom: 1px solid rgba(255,255,255,0.02); }
+.v9-row:hover { background: rgba(255,255,255,0.03); }
+
+.col-rank { font-family: var(--font-mono); font-weight: 900; color: rgba(255,255,255,0.3); font-size: 1.1rem; }
+.highlight-num { font-family: var(--font-mono); font-weight: 950; font-size: 1.2rem; color: var(--gold); text-shadow: 0 0 10px var(--gold-glow); }
+
+/* Dormant State CTA v7.0 */
+.dormant-hall-overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  z-index: 1500; background: rgba(13, 13, 15, 0.9); backdrop-filter: blur(12px);
+  border-radius: 32px; text-align: center; padding: 20px;
+}
+
+/* Hero Row (Integrated Stats) v8.0 */
+.v9-row-hero {
+  background: rgba(246, 207, 87, 0.08) !important;
+  border: 2px solid var(--gold) !important;
+  position: sticky; top: 0; z-index: 50;
+  box-shadow: 0 5px 20px rgba(246, 207, 87, 0.1);
+}
+.v9-row-hero td { border-bottom: 2px solid var(--gold) !important; }
+.hero-badge { 
+  background: var(--gold); color: #000; padding: 4px 10px;
+  border-radius: 6px; font-weight: 950; font-size: 0.65rem;
+  letter-spacing: 0.5px; display: inline-block;
+}
+
+@media (max-width: 800px) {
+  .podium-grid { flex-direction: column; align-items: center; gap: 40px; height: auto; }
+  .podium-card { width: 100%; max-width: 300px; height: auto !important; transform: none !important; }
+  .v9-row-hero td { padding: 10px 5px !important; }
+  .hero-badge { font-size: 0.55rem; padding: 2px 6px; }
 }
