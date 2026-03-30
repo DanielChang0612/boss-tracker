@@ -340,6 +340,17 @@ function App() {
     }
   }, [rooms, currentRoomId, view, voiceSettings, availableVoices]);
 
+  const handleTestVoice = () => {
+    const utterance = new SpeechSynthesisUtterance("PiKaPi 戰略通報測試。");
+    const selectedVoice = availableVoices.find(v => v.voiceURI === voiceSettings.voiceURI);
+    if (selectedVoice) utterance.voice = selectedVoice;
+    utterance.rate = voiceSettings.rate;
+    utterance.pitch = voiceSettings.pitch;
+    utterance.lang = 'zh-TW';
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  };
+
   useEffect(() => {
     const cleanup = () => {
       Object.keys(rooms || {}).forEach(id => {
@@ -1517,60 +1528,92 @@ function App() {
         </div>
       )}
       {showVoiceSettings && (
-        <div className="modal-overlay voice-modal" onClick={() => setShowVoiceSettings(false)}>
-          <div className="modal-content v9-voice-card" onClick={e => e.stopPropagation()}>
-            <button className="v9-modal-close" onClick={() => setShowVoiceSettings(false)}>×</button>
-            
-            <div className="v9-modal-header">
-              <h2 className="text-gold">⚙️ 個人化語音設定</h2>
+        <div className="modal-overlay voice-modal v30-overlay" onClick={() => setShowVoiceSettings(false)}>
+          <div className="v30-hud-console" onClick={e => e.stopPropagation()}>
+            <div className="v30-console-header">
+              <div className="v30-title-group">
+                <span className="v30-accent-bar"></span>
+                <div className="v30-title-text">
+                  <h2>VOICE SYSTEM CONFIG</h2>
+                  <p>TACTICAL COMMUNICATION MODULE v3.0</p>
+                </div>
+              </div>
+              <button className="v30-close-btn" onClick={() => setShowVoiceSettings(false)}>×</button>
             </div>
-            
-            <div className="voice-settings-body">
-              <div className="voice-setting-item">
-                <label>選擇語音庫</label>
-                <div className="v9-custom-select-wrapper">
+
+            <div className="v30-console-body">
+              {/* Voice Engine Selection */}
+              <div className="v30-control-section">
+                <div className="v30-section-label">
+                  <span className="dot"></span> 語音引擎選擇 (ENGINE SELECT)
+                </div>
+                <div className="v30-select-container">
                   <select 
                     value={voiceSettings.voiceURI} 
                     onChange={e => setVoiceSettings(prev => ({ ...prev, voiceURI: e.target.value }))}
                   >
-                    <option value="">預設系統語音</option>
+                    <option value="">DEFAULT SYSTEM VOICE</option>
                     {availableVoices.map(v => (
                       <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>
                     ))}
                   </select>
+                  <div className="v30-select-icon">▼</div>
                 </div>
               </div>
 
-              <div className="voice-setting-item">
-                <label>語速 (Rate)</label>
-                <div className="v9-slider-row">
-                  <input 
-                    type="range" min="0.5" max="2" step="0.1" 
-                    className="v9-gold-slider"
-                    value={voiceSettings.rate} 
-                    onChange={e => setVoiceSettings(prev => ({ ...prev, rate: parseFloat(e.target.value) }))} 
-                  />
-                  <span className="v9-slider-val">{voiceSettings.rate}</span>
+              {/* Sliders Grid */}
+              <div className="v30-sliders-grid">
+                <div className="v30-control-section">
+                  <div className="v30-section-label">
+                    <span className="dot"></span> 語音速率 (RATE: {voiceSettings.rate}x)
+                  </div>
+                  <div className="v30-range-wrapper">
+                    <input 
+                      type="range" min="0.5" max="2" step="0.1" 
+                      className="v30-range-input"
+                      value={voiceSettings.rate} 
+                      onChange={e => setVoiceSettings(prev => ({ ...prev, rate: parseFloat(e.target.value) }))} 
+                    />
+                    <div className="v30-range-track-bg"></div>
+                  </div>
+                </div>
+
+                <div className="v30-control-section">
+                  <div className="v30-section-label">
+                    <span className="dot"></span> 音調頻率 (PITCH: {voiceSettings.pitch}x)
+                  </div>
+                  <div className="v30-range-wrapper">
+                    <input 
+                      type="range" min="0.5" max="2" step="0.1" 
+                      className="v30-range-input"
+                      value={voiceSettings.pitch} 
+                      onChange={e => setVoiceSettings(prev => ({ ...prev, pitch: parseFloat(e.target.value) }))} 
+                    />
+                    <div className="v30-range-track-bg"></div>
+                  </div>
                 </div>
               </div>
 
-              <div className="voice-setting-item">
-                <label>音調 (Pitch)</label>
-                <div className="v9-slider-row">
-                  <input 
-                    type="range" min="0.5" max="2" step="0.1" 
-                    className="v9-gold-slider"
-                    value={voiceSettings.pitch} 
-                    onChange={e => setVoiceSettings(prev => ({ ...prev, pitch: parseFloat(e.target.value) }))} 
-                  />
-                  <span className="v9-slider-val">{voiceSettings.pitch}</span>
+              {/* Preview & Action */}
+              <div className="v30-console-footer">
+                <div className="v30-status-info">
+                  <div className="v30-sync-light"></div>
+                  <span>系統狀態: 待命 (READY)</span>
+                </div>
+                <div className="v30-action-group">
+                  <button className="v30-btn-test" onClick={handleTestVoice}>
+                    <span className="icon">🔊</span> 測試播放 (TEST PREVIEW)
+                  </button>
+                  <button className="v30-btn-confirm" onClick={() => setShowVoiceSettings(false)}>
+                    套用並關閉 (APPLY)
+                  </button>
                 </div>
               </div>
             </div>
-
-            <div className="v9-modal-footer">
-              <p>* 這些設定僅儲存在您的瀏覽器，不影響他人。</p>
-            </div>
+            
+            {/* Decoration Elements */}
+            <div className="v30-decorator-tl"></div>
+            <div className="v30-decorator-br"></div>
           </div>
         </div>
       )}
