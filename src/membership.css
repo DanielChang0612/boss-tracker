@@ -1430,12 +1430,16 @@ body {
   font-size: 1.05rem;
 }
 
-/* Boss Edges (Subtle Glow Only) */
-.boss-theme-croco { box-shadow: inset 0 0 100px rgba(46, 125, 50, 0.1); }
-.boss-theme-chimera { box-shadow: inset 0 0 100px rgba(123, 31, 162, 0.1); }
-.boss-theme-chimera { background: linear-gradient(135deg, #0d0d0f, #1b1325); }
-.boss-theme-guard { background: linear-gradient(135deg, #0d0d0f, #1a1e22); }
-.boss-theme-twins { background: linear-gradient(135deg, #0d0d0f, #131b25); }
+/* Boss Themes (V10.9 Vibrant Color Identity) */
+.boss-theme-croco { background: linear-gradient(135deg, #0a0f0a, #0d1f0d, #0d0d0f); box-shadow: inset 0 0 180px rgba(46, 125, 50, 0.25); }
+.boss-theme-doll { background: linear-gradient(135deg, #0f0a0c, #1f0d14, #0d0d0f); box-shadow: inset 0 0 180px rgba(244, 143, 177, 0.2); }
+.boss-theme-bear { background: linear-gradient(135deg, #0f0c0a, #1f140d, #0d0d0f); box-shadow: inset 0 0 180px rgba(121, 85, 72, 0.25); }
+.boss-theme-mushroom { background: linear-gradient(135deg, #0f0a0a, #250d0d, #0d0d0f); box-shadow: inset 0 0 180px rgba(211, 47, 47, 0.25); }
+.boss-theme-deetloi { background: linear-gradient(135deg, #0f0f0a, #251a0d, #0d0d0f); box-shadow: inset 0 0 180px rgba(255, 179, 0, 0.2); }
+.boss-theme-chimera { background: linear-gradient(135deg, #0c0a0f, #150d1f, #0d0d0f); box-shadow: inset 0 0 180px rgba(123, 31, 162, 0.25); }
+.boss-theme-guard { background: linear-gradient(135deg, #0a0c0c, #1a1e20, #0d0d0f); box-shadow: inset 0 0 180px rgba(69, 90, 100, 0.2); }
+.boss-theme-twins { background: linear-gradient(135deg, #0a0c10, #0d1b25, #0d0d0f); box-shadow: inset 0 0 180px rgba(25, 118, 210, 0.2); }
+.boss-theme-test { background: linear-gradient(135deg, #0f0f0f, #1f1f10, #0d0d0f); box-shadow: inset 0 0 180px rgba(246, 207, 87, 0.15); }
 
 /* --- V9.0 Sectioned Sidebar (Compact) --- */
 .v25-sidebar {
@@ -2238,11 +2242,19 @@ body {
 /* Ensure the lobby controls grid handles the new group */
 .lobby-controls {
   display: flex !important;
-  justify-content: space-between !important;
+  justify-content: flex-start !important;
   align-items: center !important;
-  gap: 20px;
+  gap: 30px;
   flex-wrap: wrap;
+  margin-bottom: 25px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 20px 25px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.03);
 }
+.boss-selector-v105 { flex: 1; display: flex; align-items: center; gap: 15px; }
+.boss-selector-v105 .hud-label { margin: 0; white-space: nowrap; font-size: 0.8rem; color: var(--gold); opacity: 0.8; }
+.lobby-btn-group { display: flex; gap: 12px; align-items: center; margin: 0; }
 
 @media (max-width: 768px) {
   .lobby-controls {
@@ -2672,6 +2684,75 @@ body {
 @media (max-width: 800px) {
   .podium-grid { flex-direction: column; align-items: center; gap: 40px; height: auto; }
   .podium-card { width: 100%; max-width: 300px; height: auto !important; transform: none !important; }
-  .v9-row-hero td { padding: 10px 5px !important; }
-  .hero-badge { font-size: 0.55rem; padding: 2px 6px; }
+}
+
+/* V10.7 Dynamic Theme Chip System */
+.v105-boss-grid {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px;
+  width: 100%; align-items: center;
+}
+.v105-boss-chip {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 6px 14px; border-radius: 8px;
+  min-width: 110px; text-align: left;
+  cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative; overflow: hidden;
+  display: flex; flex-direction: row; align-items: center; gap: 10px;
+}
+.v105-boss-chip span.area-tag {
+  font-size: 0.55rem; color: rgba(255, 255, 255, 0.3);
+  font-weight: 800; text-transform: uppercase; letter-spacing: 0px;
+  white-space: nowrap; max-width: 60px; overflow: hidden; text-overflow: ellipsis;
+  transition: all 0.2s;
+}
+.v105-boss-chip span.boss-name {
+  font-size: 0.85rem; font-weight: 900; color: #fff;
+  white-space: nowrap; transition: all 0.2s;
+}
+
+/* Theme Mappings */
+.v105-boss-chip.theme-croco:hover, .v105-boss-chip.theme-croco.active { border-color: #2e7d32; }
+.v105-boss-chip.theme-croco.active { background: rgba(46, 125, 50, 0.15); box-shadow: 0 0 15px rgba(46, 125, 50, 0.2); }
+.v105-boss-chip.theme-croco.active .boss-name { color: #81c784; }
+
+.v105-boss-chip.theme-doll:hover, .v105-boss-chip.theme-doll.active { border-color: #f48fb1; }
+.v105-boss-chip.theme-doll.active { background: rgba(244, 143, 177, 0.15); box-shadow: 0 0 15px rgba(244, 143, 177, 0.2); }
+.v105-boss-chip.theme-doll.active .boss-name { color: #f8bbd0; }
+
+.v105-boss-chip.theme-bear:hover, .v105-boss-chip.theme-bear.active { border-color: #8d6e63; }
+.v105-boss-chip.theme-bear.active { background: rgba(141, 110, 99, 0.15); box-shadow: 0 0 15px rgba(141, 110, 99, 0.2); }
+.v105-boss-chip.theme-bear.active .boss-name { color: #bcaaa4; }
+
+.v105-boss-chip.theme-mushroom:hover, .v105-boss-chip.theme-mushroom.active { border-color: #ef5350; }
+.v105-boss-chip.theme-mushroom.active { background: rgba(239, 83, 80, 0.15); box-shadow: 0 0 15px rgba(239, 83, 80, 0.2); }
+.v105-boss-chip.theme-mushroom.active .boss-name { color: #ef9a9a; }
+
+.v105-boss-chip.theme-deetloi:hover, .v105-boss-chip.theme-deetloi.active { border-color: #ffb300; }
+.v105-boss-chip.theme-deetloi.active { background: rgba(255, 179, 0, 0.15); box-shadow: 0 0 15px rgba(255, 179, 0, 0.2); }
+.v105-boss-chip.theme-deetloi.active .boss-name { color: #ffe082; }
+
+.v105-boss-chip.theme-robot:hover, .v105-boss-chip.theme-robot.active { border-color: #42a5f5; }
+.v105-boss-chip.theme-robot.active { background: rgba(66, 165, 245, 0.15); box-shadow: 0 0 15px rgba(66, 165, 245, 0.2); }
+.v105-boss-chip.theme-robot.active .boss-name { color: #90caf9; }
+
+.v105-boss-chip.theme-chimera:hover, .v105-boss-chip.theme-chimera.active { border-color: #7b1fa2; }
+.v105-boss-chip.theme-chimera.active { background: rgba(123, 31, 162, 0.15); box-shadow: 0 0 15px rgba(123, 31, 162, 0.2); }
+.v105-boss-chip.theme-chimera.active .boss-name { color: #ce93d8; }
+
+.v105-boss-chip.theme-guard:hover, .v105-boss-chip.theme-guard.active { border-color: #546e7a; }
+.v105-boss-chip.theme-guard.active { background: rgba(84, 110, 122, 0.15); box-shadow: 0 0 15px rgba(84, 110, 122, 0.2); }
+.v105-boss-chip.theme-guard.active .boss-name { color: #b0bec5; }
+
+.v105-boss-chip.theme-twins:hover, .v105-boss-chip.theme-twins.active { border-color: #00bcd4; }
+.v105-boss-chip.theme-twins.active { background: rgba(0, 188, 212, 0.15); box-shadow: 0 0 15px rgba(0, 188, 212, 0.2); }
+.v105-boss-chip.theme-twins.active .boss-name { color: #80deea; }
+
+.v105-boss-chip.theme-test:hover, .v105-boss-chip.theme-test.active { border-color: #fbc02d; }
+.v105-boss-chip.theme-test.active { background: rgba(251, 192, 45, 0.15); box-shadow: 0 0 15px rgba(251, 192, 45, 0.2); }
+.v105-boss-chip.theme-test.active .boss-name { color: #fff176; }
+
+@media (max-width: 600px) {
+  .v105-boss-grid { justify-content: center; }
+  .v105-boss-chip { width: 100%; max-width: 320px; }
 }

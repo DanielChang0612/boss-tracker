@@ -251,9 +251,13 @@ function App() {
     const unsubRoom = onValue(baseRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
+        // V10.8.1: Ensure records is cleared if missing in snapshot (Fixes last delete bug)
+        const updatedRoom = { ...data };
+        if (!updatedRoom.records) updatedRoom.records = {};
+        
         setRooms(prev => ({ 
           ...prev, 
-          [currentRoomId]: { ...(prev[currentRoomId] || {}), ...data } 
+          [currentRoomId]: { ...(prev[currentRoomId] || {}), ...updatedRoom } 
         }));
       }
     });
@@ -1964,18 +1968,25 @@ function App() {
         return (
           <div className="lobby-container">
             <header className="lobby-header">
-              <div className="version-tag">Build v2.1 - 指揮中心已上線</div>
+              <div className="version-tag">Build v2.1 - V10.5 TACTICAL</div>
               <h1>PiKaPi 公會和諧打王趣</h1>
               <p>專業野王紀錄管理系統</p>
             </header>
             <section className="lobby-controls">
-              <div className="boss-selector">
-                <label>選擇野王：</label>
-                <select value={selectedBossId} onChange={(e) => setSelectedBossId(e.target.value)}>
+              <div className="boss-selector-v105">
+                <label className="hud-label">BOSS 選擇：</label>
+                <div className="v105-boss-grid">
                   {Object.entries(BOSSES).map(([id, boss]) => (
-                    <option key={id} value={id}>{boss.name} ({boss.area})</option>
+                    <div 
+                      key={id} 
+                      className={`v105-boss-chip theme-${id} ${selectedBossId === id ? 'active' : ''}`}
+                      onClick={() => setSelectedBossId(id)}
+                    >
+                      <span className="area-tag">{boss.area}</span>
+                      <span className="boss-name">{boss.name}</span>
+                    </div>
                   ))}
-                </select>
+                </div>
               </div>
               <div className="lobby-btn-group">
                 <button className="create-btn" onClick={() => setShowCreateModal(true)}>創建打王房間</button>
