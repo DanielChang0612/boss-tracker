@@ -1189,11 +1189,28 @@ function App() {
       const rawMembers = room.members || {};
       const members = Object.keys(rawMembers).filter(m => m !== userName);
       const isConductor = room.conductor === userName;
+
       remove(ref(db, `rooms/${currentRoomId}/members/${userName}`));
-      update(ref(db, `rooms/${currentRoomId}`), {
-        conductor: isConductor ? (members[0] || room.conductor) : room.conductor,
-        emptySince: members.length === 0 ? Date.now() : null
-      });
+
+      // V16.4: 房主離開時，若還有隊員，自動傳位給[0]
+      const nextConductor = isConductor ? (members[0] || null) : room.conductor;
+      const isRoomEmpty = members.length === 0;
+
+      const updates = {
+        conductor: nextConductor,
+        emptySince: isRoomEmpty ? Date.now() : null
+      };
+
+      if (isConductor || isRoomEmpty) {
+        // 同步大廳摘要
+        update(ref(db, `roomSummaries/${currentRoomId}`), {
+          conductor: nextConductor,
+          onlineCount: members.length,
+          emptySince: isRoomEmpty ? Date.now() : null
+        });
+      }
+
+      update(ref(db, `rooms/${currentRoomId}`), updates);
     }
     setSessionStartTime(null);
     setShowLeaveModal(false);
@@ -2117,24 +2134,24 @@ function App() {
     // V16.0: 多重會話衝突阻斷
     if (isKickedByOtherDevice) {
       return (
-        <div className="modal-overlay session-kick-overlay" style={{background: 'rgba(0,0,0,0.95)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
-          <div className="v30-hud-console kicked-alert" style={{maxWidth: '400px', border: '2px solid #ff4444', animation: 'pulse-red 2s infinite'}}>
-             <div className="v30-console-header danger" style={{background: '#ff4444', color: '#fff'}}>
-                <div style={{fontWeight: '900'}}>⚠️ 戰術連線衝突 (SESSION CONFLICT)</div>
-             </div>
-             <div className="v30-console-body centered" style={{padding: '40px 30px', textAlign: 'center'}}>
-                <h3 style={{color: '#ff4444'}}>您的帳號已從另一台設備登入</h3>
-                <p style={{fontSize: '14px', opacity: 0.8, marginTop: '15px'}}>為了優化系統頻寬並維護數據安全性，本分頁已停止所有戰術同步。</p>
-                <div style={{marginTop: '30px', borderTop: '1px solid #333', paddingTop: '20px'}}>
-                   <button 
-                     className="v30-btn-primary" 
-                     onClick={() => window.location.reload()}
-                     style={{background: '#ff4444', width: '100%', padding: '15px', borderRadius: '8px', fontWeight: '900'}}
-                   >
-                     重新獲取連線主權
-                   </button>
-                </div>
-             </div>
+        <div className="modal-overlay session-kick-overlay" style={{ background: 'rgba(0,0,0,0.95)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="v30-hud-console kicked-alert" style={{ maxWidth: '400px', border: '2px solid #ff4444', animation: 'pulse-red 2s infinite' }}>
+            <div className="v30-console-header danger" style={{ background: '#ff4444', color: '#fff' }}>
+              <div style={{ fontWeight: '900' }}>⚠️ 戰術連線衝突 (SESSION CONFLICT)</div>
+            </div>
+            <div className="v30-console-body centered" style={{ padding: '40px 30px', textAlign: 'center' }}>
+              <h3 style={{ color: '#ff4444' }}>您的帳號已從另一台設備登入</h3>
+              <p style={{ fontSize: '14px', opacity: 0.8, marginTop: '15px' }}>為了優化系統頻寬並維護數據安全性，本分頁已停止所有戰術同步。</p>
+              <div style={{ marginTop: '30px', borderTop: '1px solid #333', paddingTop: '20px' }}>
+                <button
+                  className="v30-btn-primary"
+                  onClick={() => window.location.reload()}
+                  style={{ background: '#ff4444', width: '100%', padding: '15px', borderRadius: '8px', fontWeight: '900' }}
+                >
+                  重新獲取連線主權
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       );
@@ -2146,7 +2163,7 @@ function App() {
           <div className="landing-page-container">
             <div className="landing-content glass-panel">
               <h1 className="landing-title neon-text">PIKAPI<br />GUILD TRACKER</h1>
-              <p className="landing-subtitle">專業公會戰役管理・專屬戰報・把愛傳下去 V16.1 - REBORN</p>
+              <p className="landing-subtitle">專業公會戰役管理・專屬戰報・把愛傳下去 V16.3 - ORPHANED TIMER</p>
 
               {!isNativeAuthVisible ? (
                 <div className="auth-options fade-in">
@@ -2225,7 +2242,7 @@ function App() {
                   </span>
                 </div>
               )}
-              <p className="landing-subtitle">請填寫您的遊戲暱稱並向管理員提交申請，<br />審核通過後即可開始紀錄。 V16.1 - REBORN</p>
+              <p className="landing-subtitle">請填寫您的遊戲暱稱並向管理員提交申請，<br />審核通過後即可開始紀錄。 V16.3 - ORPHANED TIMER</p>
               <div style={{ marginTop: '10px', marginBottom: '20px', width: '100%', display: 'flex', justifyContent: 'center' }}>
                 <input
                   type="text"
@@ -2381,7 +2398,7 @@ function App() {
         return (
           <div className="lobby-container">
             <header className="lobby-header">
-              <div className="version-tag">Build v16.1 - REBORN TACTICAL</div>
+              <div className="version-tag">Build v16.3 - ORPHANED TIMER</div>
               <h1>PiKaPi 公會和諧打王趣</h1>
               <p>專業野王紀錄管理系統</p>
             </header>
@@ -2441,13 +2458,35 @@ function App() {
                 {bossRooms.length === 0 && <div className="empty-msg">目前沒有房間，快去當車長吧！</div>}
                 {bossRooms.map(room => {
                   const memberCount = room.onlineCount ?? 0;
+                  const isOrphaned = !room.conductor;
+
+                  // 計算孤兒房剩餘壽命 (V16.3: 倒數計時器)
+                  let countdownText = "";
+                  if (isOrphaned && room.emptySince) {
+                    const remainingMs = Math.max(0, (room.emptySince + ROOM_AUTO_DELETE_MS) - now);
+                    const hours = Math.floor(remainingMs / 3600000);
+                    const minutes = Math.floor((remainingMs % 3600000) / 60000);
+                    const seconds = Math.floor((remainingMs % 60000) / 1000);
+                    countdownText = `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                  }
+
                   return (
-                    <div key={room.id} className="list-row">
+                    <div key={room.id} className={`list-row ${isOrphaned ? 'orphaned-room' : ''}`}>
                       <div className="col-ch">{room.id}</div>
-                      <div className="col-boss">{room.conductor}</div>
+                      <div className="col-boss">
+                        {room.conductor || <span style={{ color: '#ff4444', fontWeight: 'bold' }}>⚠️ 這城市那麼空</span>}
+                      </div>
                       <div className="room-count"><b>{memberCount}</b>/4</div>
                       <div className="room-time">{formatTime(now - room.createdAt)}</div>
-                      <div className="room-status"><span className="status-pulse-green">●</span> 熱烈打王中...</div>
+                      <div className="room-status">
+                        {isOrphaned ? (
+                          <div style={{ color: '#ff8a65', fontSize: '11px', animation: 'pulse-text 2s infinite' }}>
+                            🧬 銷毀倒數：{countdownText}
+                          </div>
+                        ) : (
+                          <><span className="status-pulse-green">●</span> 熱烈打王中...</>
+                        )}
+                      </div>
                       <div className="room-action">
                         {lastJoinedRoomId === room.id ? (
                           <button className="join-room-btn-v11 active-session" onClick={() => {
