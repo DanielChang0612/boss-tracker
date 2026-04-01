@@ -15,7 +15,8 @@ const DEFAULT_ANIMALS = [
   '🐝', '🦋', '🐞', '🌻', '🍀', '🌈', '🍦', '🥨',
   '🍭', '🧁', '🍪', '🍩', '🍫', '⚔️', '🛡️', '🏹',
   '⚖️', '💎', '👑', '🏰', '🔥', '❄️', '⚡', '🎈',
-  '🎁', '🎀', '🧸', '🪁', '🎮', '🎨'
+  '🎁', '🎀', '🧸', '🪁', '🎮', '🎨', '🍓', '😒',
+  '⚽️', '🍆', '🐳', '🐬', '🤡', '🍼', '💩', '🥵'
 ];
 
 // BOSS 定義
@@ -76,16 +77,16 @@ const getRankInfo = (kills = 0) => {
 
   const config = RANKS_CONFIG[titleIdx];
   const relativeKills = kills - config.minKills;
-  const subRankLevel = Math.floor(relativeKills / config.scale); 
-  const currentSubRank = Math.min(5, subRankLevel + 1); 
-  
+  const subRankLevel = Math.floor(relativeKills / config.scale);
+  const currentSubRank = Math.min(5, subRankLevel + 1);
+
   const subRankMap = ['五階', '四階', '三階', '二階', '一階'];
   const subRankText = subRankMap[currentSubRank - 1] || '一階';
   const level = (titleIdx * 5) + Math.min(5, currentSubRank);
 
   let nextThreshold = config.minKills + (currentSubRank * config.scale);
   let isMax = false;
-  
+
   if (currentSubRank >= 5) {
     if (titleIdx < RANKS_CONFIG.length - 1) {
       nextThreshold = RANKS_CONFIG[titleIdx + 1].minKills;
@@ -94,13 +95,13 @@ const getRankInfo = (kills = 0) => {
     }
   }
 
-  return { 
-    ...config, 
-    level, 
+  return {
+    ...config,
+    level,
     subRank: subRankText,
     fullTitle: `${config.title} ${subRankText}`,
     nextKills: isMax ? 0 : (nextThreshold - kills),
-    progress: isMax ? 100 : Math.min(99, ((kills - (config.minKills + (currentSubRank-1)*config.scale)) / config.scale) * 100)
+    progress: isMax ? 100 : Math.min(99, ((kills - (config.minKills + (currentSubRank - 1) * config.scale)) / config.scale) * 100)
   };
 };
 
@@ -147,7 +148,7 @@ function App() {
   const [allUsers, setAllUsers] = useState({});
   const [pendingUsers, setPendingUsers] = useState({}); // 即時監聽申請中用戶 (獨立於所有用戶)
   const [adminTab, setAdminTab] = useState('rooms'); // 'rooms' | 'users'
-  
+
   // 排行榜流量優化計時器 (v8.2)
   const [syncCountdown, setSyncCountdown] = useState(0); // 5s 執行倒數
   const [syncCooldown, setSyncCooldown] = useState(0);   // 60s 冷卻計時
@@ -167,7 +168,7 @@ function App() {
   const [lastSummariesUpdate, setLastSummariesUpdate] = useState(null); // 上次刷新時間
   const [isTabActive, setIsTabActive] = useState(true); // 頁面是否在前景 (v3.3)
   const [selectedMedal, setSelectedMedal] = useState(null); // 當前點選查看的勳章 (v4.4)
-  
+
   // --- 把愛傳下去相關狀態 (v13.0) ---
   const [showLoveModal, setShowLoveModal] = useState(false);
   const [loveStep, setLoveStep] = useState(1); // 1: 選擇房間, 2: 選擇頻道, 3: 毀滅確認
@@ -264,14 +265,14 @@ function App() {
 
     setIsSummariesLoading(true);
     const summaryRef = ref(db, 'roomSummaries');
-    
+
     // onValue 在初次載入後僅傳送 Diffs
     const unsubscribe = onValue(summaryRef, (snap) => {
       setRoomSummaries(snap.val() || {});
       setLastSummariesUpdate(Date.now());
       setIsSummariesLoading(false);
     });
-    
+
     return () => unsubscribe();
   }, [view, isTabActive]);
 
@@ -279,7 +280,7 @@ function App() {
   useEffect(() => {
     // V12.0 DEFINITIVE SCALABILITY: 針對上千頻道的「事件驅動」連線，流量變成常數級。
     if (!currentRoomId || view !== 'room') return;
-    
+
     const roomRef = ref(db, `rooms/${currentRoomId}`);
     const recordsRef = child(roomRef, 'records');
 
@@ -289,7 +290,7 @@ function App() {
         const data = snap.val();
         setRooms(prev => ({
           ...prev,
-          [currentRoomId]: { 
+          [currentRoomId]: {
             records: {}, members: {}, ...data // 預填結構防崩潰
           }
         }));
@@ -303,11 +304,11 @@ function App() {
       const data = snap.val();
       setRooms(prev => {
         const existing = prev[currentRoomId] || { records: {}, members: {} };
-        return { 
-          ...prev, 
-          [currentRoomId]: { 
-            ...existing, 
-            records: { ...existing.records, [chKey]: data } 
+        return {
+          ...prev,
+          [currentRoomId]: {
+            ...existing,
+            records: { ...existing.records, [chKey]: data }
           }
         };
       });
@@ -318,11 +319,11 @@ function App() {
       const data = snap.val();
       setRooms(prev => {
         const existing = prev[currentRoomId] || { records: {}, members: {} };
-        return { 
-          ...prev, 
-          [currentRoomId]: { 
-            ...existing, 
-            records: { ...existing.records, [chKey]: data } 
+        return {
+          ...prev,
+          [currentRoomId]: {
+            ...existing,
+            records: { ...existing.records, [chKey]: data }
           }
         };
       });
@@ -334,8 +335,8 @@ function App() {
         const existing = prev[currentRoomId] || { records: {}, members: {} };
         const newRecords = { ...existing.records };
         delete newRecords[chKey];
-        return { 
-          ...prev, 
+        return {
+          ...prev,
           [currentRoomId]: { ...existing, records: newRecords }
         };
       });
@@ -347,17 +348,17 @@ function App() {
       setRooms(prev => {
         const existing = prev[currentRoomId] || { records: {}, members: {} };
         const newRoomData = { ...existing, members: mData };
-        
+
         // 車長負責同步大廳人數與成員名單 (僅在成員變動時觸發)
         if (newRoomData.conductor === userName) {
           const mCount = Object.keys(mData).length;
           const names = Object.keys(mData);
-          update(ref(db, `roomSummaries/${currentRoomId}`), { 
+          update(ref(db, `roomSummaries/${currentRoomId}`), {
             onlineCount: mCount,
             memberNames: names
           });
         }
-        
+
         return { ...prev, [currentRoomId]: newRoomData };
       });
     });
@@ -371,8 +372,8 @@ function App() {
           const existing = prev[currentRoomId] || { records: {}, members: {} };
           return {
             ...prev,
-            [currentRoomId]: { 
-              ...existing, 
+            [currentRoomId]: {
+              ...existing,
               [path]: val
             }
           };
@@ -405,9 +406,9 @@ function App() {
       // V11.5 BUGFIX: Prevent kicked users from becoming zombie ghosts
       if (!userHasSeenSelfInRoom.current) return;
       const memberRef = ref(db, `rooms/${currentRoomId}/members/${userName}`);
-      update(memberRef, { 
-        isOnline: true, 
-        lastSeen: Date.now() 
+      update(memberRef, {
+        isOnline: true,
+        lastSeen: Date.now()
       });
     };
 
@@ -420,7 +421,7 @@ function App() {
   // 2.1 語音專用監聽器 (全天候開啟，含背景 v3.5)
   useEffect(() => {
     if (!currentRoomId || view !== 'room') return;
-    
+
     // 專門監聽語音節點，體積極小，確保在後台也能通報
     const alertRef = ref(db, `rooms/${currentRoomId}/voiceAlert`);
     return onValue(alertRef, (snapshot) => {
@@ -484,7 +485,7 @@ function App() {
       const commonPath_AT_K = `rankings/${currentMonth}/allTime/${uid}`;
       const commonPath_AT_H = `rankings/${currentMonth}/allTimeHours/${uid}`;
       const updates = {};
-      
+
       if (deltaKills > 0) {
         updates[`${commonPath_AT_K}/v`] = increment(deltaKills);
         updates[`${commonPath_AT_K}/n`] = name;
@@ -561,7 +562,7 @@ function App() {
       if (Object.keys(allUsers).length === 0) {
         fetchAllUsers();
       }
-      
+
       // 此處僅為確保摘要最新，若 lobby 的監聽器未作用，則補掛一個
       if (Object.keys(roomSummaries).length === 0) {
         const unsub = onValue(ref(db, 'roomSummaries'), snap => setRoomSummaries(snap.val() || {}));
@@ -587,17 +588,17 @@ function App() {
     }, 1000);
 
     try {
-      const path = leaderboardPeriod === 'allTime' 
+      const path = leaderboardPeriod === 'allTime'
         ? `rankings/allTime/${leaderboardMetric}`
         : `rankings/monthly/${leaderboardMonth}/${leaderboardMetric}`;
-      
+
       const q = ref(db, path);
-      
+
       // 1. 同步雲端
       if (currentUser && currentUser.profile) {
         await syncToRankings(currentUser.uid, userName, currentUser.profile.photoURL, 0, 0);
       }
-      
+
       // 2. 抓取名次 (切換為 Client-side Sorting 以跳過 Indexing 報錯)
       const snap = await get(q);
       let list = [];
@@ -623,12 +624,12 @@ function App() {
       // 4. 更新 UI 並揭開領獎台
       list.sort((a, b) => b.v - a.v);
       setLeaderboardData(list);
-      setHasInitialRankingsFetch(true); 
-      
+      setHasInitialRankingsFetch(true);
+
       // 5. 確保視覺分析倒數至少維持 5 秒
       await new Promise(resolve => setTimeout(resolve, 5000));
-      
-      setSyncCooldown(60); 
+
+      setSyncCooldown(60);
     } catch (e) {
       console.error("[Fetch Error]", e);
       alert("📡 戰略同步失敗，請檢查網路連線。");
@@ -665,9 +666,9 @@ function App() {
         // V11.5 BUGFIX: Also protect connected event from recreating ghost members
         if (userHasSeenSelfInRoom.current) {
           const memberRef = ref(db, `rooms/${currentRoomId}/members/${userName}`);
-          update(memberRef, { 
-            isOnline: true, 
-            lastSeen: Date.now() 
+          update(memberRef, {
+            isOnline: true,
+            lastSeen: Date.now()
           });
         }
       }
@@ -681,14 +682,14 @@ function App() {
         const userRef = ref(db, `users/${user.uid}`);
         const snapshot = await get(userRef);
         let userData = snapshot.val();
-        
+
         if (!userData) {
           // 如果是剛註冊的原生帳號，可能還沒有 displayName，優先使用 user.displayName 或預設值
           const initialName = user.displayName || authEmail.split('@')[0] || '新隊員';
           userData = {
             uid: user.uid,
             displayName: initialName,
-            photoURL: '🐶', 
+            photoURL: '🐶',
             totalKills: 0,
             totalHours: 0,
             status: (user.uid === ADMIN_UID || user.uid === PIKA_UID) ? 'approved' : 'new',
@@ -702,18 +703,18 @@ function App() {
             });
           }
         }
-        
-        const combinedUser = { 
-          ...user, 
-          photoURL: userData.photoURL || '🐶', 
+
+        const combinedUser = {
+          ...user,
+          photoURL: userData.photoURL || '🐶',
           displayName: userData.displayName || user.displayName || '新隊員',
-          profile: userData 
+          profile: userData
         };
         setCurrentUser(combinedUser);
         setUserName(userData.displayName || user.displayName || '新隊員');
-        
+
         const isUserAdmin = user.uid === ADMIN_UID || user.uid === PIKA_UID;
-        
+
         if (user.uid !== PIKA_UID && userData.status === 'rejected') {
           setView('landing');
         } else if (!isUserAdmin && userData.status !== 'approved') {
@@ -750,7 +751,7 @@ function App() {
     });
     return () => unsubscribe();
   }, [view, rooms, currentRoomId]);
-  
+
   // 終極全域心跳控流 (v3.3)
   useEffect(() => {
     if (!currentUser || !isTabActive) return;
@@ -758,8 +759,8 @@ function App() {
     const updatePresence = () => {
       if (Date.now() - lastPresenceUpdateTs.current > 60000) {
         const presenceRef = ref(db, `presence/${currentUser.uid}`);
-        update(presenceRef, { 
-          isOnline: true, 
+        update(presenceRef, {
+          isOnline: true,
           lastSeen: Date.now(),
           displayName: currentUser.displayName || '無名英雄'
         });
@@ -837,7 +838,7 @@ function App() {
       const room = rooms[currentRoomId];
       const rawMembers = room.members || {};
       const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
-      
+
       const isInRoom = members.includes(userName);
 
       if (isInRoom) {
@@ -860,17 +861,17 @@ function App() {
   // 已廢除個人圖片上傳 (v2.2)
   const updateProfileAvatar = (newUrl) => {
     if (!currentUser) return;
-    
+
     const updates = {};
     updates[`users/${currentUser.uid}/photoURL`] = newUrl;
-    
+
     // 如果目前在房間內，同步更新房內成員頭像 (v12.6)
     if (currentRoomId && userName) {
       updates[`rooms/${currentRoomId}/members/${userName}/photoURL`] = newUrl;
     }
-    
+
     update(ref(db), updates);
-    
+
     setCurrentUser(prev => ({
       ...prev,
       photoURL: newUrl,
@@ -925,7 +926,7 @@ function App() {
         const room = rooms[id];
         const rawMembers = room.members || {};
         const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
-        
+
         if (members.length === 0 && !room.emptySince) {
           update(ref(db, `rooms/${id}`), { emptySince: Date.now() });
         }
@@ -947,21 +948,21 @@ function App() {
     // And we must guard against recreating ghost members on unmount!
     if (currentRoomId && userName && isTabActive) {
       const memberRef = ref(db, `rooms/${currentRoomId}/members/${userName}`);
-      
+
       // If we haven't officially seen ourselves yet, wait before updating presence
       if (userHasSeenSelfInRoom.current) {
-        update(memberRef, { 
-          isOnline: true, 
-          lastSeen: Date.now() 
+        update(memberRef, {
+          isOnline: true,
+          lastSeen: Date.now()
         });
       }
 
       const disconnectRef = onDisconnect(memberRef);
-      disconnectRef.update({ 
-        isOnline: false, 
-        lastSeen: Date.now() 
+      disconnectRef.update({
+        isOnline: false,
+        lastSeen: Date.now()
       });
-      
+
       return () => {
         // V11.5 BUGFIX: DO NOT push isOnline: false here!
         // If currentRoomId was cleared because of a kick/leave, push would resurrect the member as a ghost.
@@ -1056,20 +1057,20 @@ function App() {
       bossId: selectedBossId,
       password: Math.random().toString(36).substr(2, 4),
       conductor,
-      members: { 
+      members: {
         [userName]: {
           joinedAt: Date.now(),
           startKills: 0,
           totalKills: currentUser.profile?.totalKills || 0, // 初始帶入總擊殺 (v12.7)
           photoURL: currentUser.profile?.photoURL || '🐶',
           isOnline: true
-        } 
+        }
       },
       records: {},
       totalKills: 0,
       createdAt: Date.now()
     };
-    
+
     // 同步寫入摘要，讓大廳監聽與管理者後台超省流量 (v15.2: 補上密碼字段供管理用)
     const summary = {
       id,
@@ -1100,10 +1101,10 @@ function App() {
     // V11.5 FIX: Since full room is no longer synced in lobby, fetch on demand
     const snapshot = await get(ref(db, `rooms/${currentRoomId}`));
     if (!snapshot.exists()) return alert("房間已不存在");
-    
+
     const room = snapshot.val();
     const membersList = Object.keys(room.members || {});
-    
+
     // 如果不是原本就在裡面，且人數已滿 4 人，不給進
     if (!membersList.includes(userName) && membersList.length >= 4) {
       return alert("【戰報】該房間員額已滿 (4/4)，請選擇其他房間或自行開車。");
@@ -1112,15 +1113,15 @@ function App() {
     if (room.password !== passwordInput) return alert("密碼錯誤");
 
     await update(ref(db, `rooms/${currentRoomId}/members`), {
-      [userName]: { 
-        joinedAt: Date.now(), 
+      [userName]: {
+        joinedAt: Date.now(),
         startKills: room.totalKills || 0,
         totalKills: currentUser.profile?.totalKills || 0, // 加入時同步階級數據 (v12.7)
         photoURL: currentUser.profile?.photoURL || '🐶', // 同步頭像 (v2.3)
         isOnline: true
       }
     });
-    
+
     setLastJoinedRoomId(currentRoomId);
     localStorage.setItem('pikapi_last_room', currentRoomId);
     setView('room');
@@ -1143,12 +1144,12 @@ function App() {
         const delta = (Date.now() - sessionStartTime) / (1000 * 60 * 60); // 小時
         const userRef = ref(db, `users/${currentUser.uid}`);
         const bossId = room.bossId;
-        
+
         update(userRef, {
           totalHours: increment(delta),
           [`bossStats/${bossId}/hours`]: increment(delta)
         });
-        
+
         // 同步到排行榜 (v5.0 + v15.0 原子累計)
         syncToRankings(currentUser.uid, userName, currentUser.profile?.photoURL, 0, delta);
       }
@@ -1191,24 +1192,24 @@ function App() {
 
     const isActive = !!(currentRoom.wildBossExplore && currentRoom.wildBossExplore[userName]);
     const newState = !isActive;
-    
+
     const updates = {};
     // 直接操作節點，確保 null 時能正確刪除對應路徑
     updates[`rooms/${currentRoomId}/wildBossExplore/${userName}`] = newState ? true : null;
-    
+
     // 唯有在「開始打野」時廣播，取消則保持安靜 (v12.9)
     if (newState) {
       const msg = `${userName} 前往各頻道打野中`;
       updates[`rooms/${currentRoomId}/voiceAlert`] = { message: msg, ts: Date.now(), sender: userName };
     }
-    
+
     update(ref(db), updates);
   };
 
   const handleStationed = (chKey) => {
     const records = currentRoom.records || {};
     const isOccupiedByMe = records[chKey]?.occupant === userName;
-    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
+    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), {
       occupant: isOccupiedByMe ? null : userName // 點擊第二次解除佔位 (v2.3)
     });
   };
@@ -1216,14 +1217,14 @@ function App() {
   const addRecord = (manualChKey) => {
     const chKey = manualChKey || `CH ${inputChannel.trim()}`;
     if (!manualChKey && !inputChannel.trim()) return;
-    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
+    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), {
       lastKill: Date.now(),
       reporter: userName,
       occupant: null
     });
 
     // 增加房間總擊殺 (同步更新詳情與摘要) - v15.0 原子累載
-    const globalUpdates = { 
+    const globalUpdates = {
       [`rooms/${currentRoomId}/totalKills`]: increment(1),
       [`roomSummaries/${currentRoomId}/totalKills`]: increment(1),
     };
@@ -1233,7 +1234,7 @@ function App() {
     if (currentUser && currentRoom) {
       const bossId = currentRoom.bossId;
       const userRef = ref(db, `users/${currentUser.uid}`);
-      
+
       // 獲取最新狀態用於紀錄 Activity (此處讀取仍有必要，因為 Activity 是陣列操作)
       get(userRef).then(snap => {
         const data = snap.val() || {};
@@ -1245,7 +1246,7 @@ function App() {
         };
         const recent = data.recentActivity || [];
         const updatedRecent = [newActivity, ...recent].slice(0, 5);
-        
+
         // 個人累計使用 increment
         const userUpdates = {
           totalKills: increment(1),
@@ -1259,7 +1260,7 @@ function App() {
           const simulatedKills = (data.totalKills || 0) + 1;
           update(ref(db, `rooms/${currentRoomId}/members/${userName}`), { totalKills: simulatedKills });
         }
-        
+
         // 同步到排行榜 (v5.0 + v15.0 原子累計)
         syncToRankings(currentUser.uid, userName, currentUser.profile?.photoURL, 1, 0);
       });
@@ -1277,7 +1278,7 @@ function App() {
 
   const markAsReady = (chKey) => {
     const readyTime = Date.now() - (currentBoss.time * 60 * 1000);
-    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { 
+    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), {
       lastKill: readyTime,
       reporter: userName,
       occupant: null
@@ -1293,13 +1294,13 @@ function App() {
 
   const sendLoveRequest = async () => {
     if (!selectedTargetRoomId || !currentRoom) return;
-    
+
     const targetRoomSummary = roomSummaries[selectedTargetRoomId];
     const targetConductor = targetRoomSummary?.conductor || '另一房的房主';
-    
+
     const records = currentRoom.records || {};
     let channelsToMove = {};
-    
+
     if (loveTransferMode === 'all') {
       channelsToMove = { ...records };
     } else {
@@ -1325,28 +1326,28 @@ function App() {
 
     // 1. 發送請求
     await set(ref(db, `rooms/${selectedTargetRoomId}/loveRequest`), request);
-    
+
     // 2. 傳送房全體廣播
-    update(ref(db, `rooms/${currentRoomId}/voiceAlert`), { 
-      message: `房主 ${userName} 已經把愛 給 另一房的房主 ${targetConductor}`, 
-      ts: Date.now(), 
-      sender: userName 
+    update(ref(db, `rooms/${currentRoomId}/voiceAlert`), {
+      message: `房主 ${userName} 已經把愛 給 另一房的房主 ${targetConductor}`,
+      ts: Date.now(),
+      sender: userName
     });
-    
+
     setShowLoveModal(false);
   };
 
   const refuseLoveRequest = async () => {
     if (!incomingLoveRequest) return;
     const { fromId } = incomingLoveRequest;
-    
+
     // 1. 廣播給傳送房 (狠狠拒絕)
-    update(ref(db, `rooms/${fromId}/voiceAlert`), { 
-      message: `${userName} 房主 狠狠拒絕了你們的愛`, 
-      ts: Date.now(), 
-      sender: userName 
+    update(ref(db, `rooms/${fromId}/voiceAlert`), {
+      message: `${userName} 房主 狠狠拒絕了你們的愛`,
+      ts: Date.now(),
+      sender: userName
     });
-    
+
     // 2. 清除請求
     await remove(ref(db, `rooms/${currentRoomId}/loveRequest`));
     setIncomingLoveRequest(null);
@@ -1355,7 +1356,7 @@ function App() {
   const acceptLoveRequest = async () => {
     if (!incomingLoveRequest || !currentRoom) return;
     const { fromId, fromConductor, channels, mode } = incomingLoveRequest;
-    
+
     const updates = {};
     // 1. 搬家頻道資料
     Object.entries(channels || {}).forEach(([ch, data]) => {
@@ -1366,14 +1367,14 @@ function App() {
     // 2. 語音連動
     updates[`rooms/${currentRoomId}/voiceAlert`] = { message: `成功接受來自 ${fromConductor} 房主的愛`, ts: Date.now(), sender: userName };
     updates[`rooms/${fromId}/voiceAlert`] = { message: `${userName} 房主已經接受你們的愛`, ts: Date.now(), sender: userName };
-    
+
     // 3. 處理終結邏輯
     if (mode === 'all') {
       // 若全部轉移，銷毀傳送房 (利用 Firebase 結構刪除會自動讓成員彈出)
       remove(ref(db, `rooms/${fromId}`));
       remove(ref(db, `roomSummaries/${fromId}`));
     }
-    
+
     // 4. 清除這筆愛
     updates[`rooms/${currentRoomId}/loveRequest`] = null;
     await update(ref(db), updates);
@@ -1393,9 +1394,9 @@ function App() {
 
   const broadcastStatus = (ch) => {
     if (!currentRoomId || !currentBoss) return;
-    const chNum = ch.replace('CH','').trim();
+    const chNum = ch.replace('CH', '').trim();
     const message = `頻道 ${chNum} 已經重生`;
-    
+
     // 更新至 Firebase 中心的語音警報設施，這會觸發全房報讀
     update(ref(db, `rooms/${currentRoomId}`), {
       voiceAlert: {
@@ -1419,10 +1420,10 @@ function App() {
     // V11.5: Optimized to capture the entire tactical panel including metadata
     const element = document.getElementById('tactical-report-panel');
     if (!element) return;
-    
+
     // 增加 scale 以提升文字清晰度，設置背景色確保玻璃擬態效果正確導出
-    html2canvas(element, { 
-      backgroundColor: '#0a0a10', 
+    html2canvas(element, {
+      backgroundColor: '#0a0a10',
       scale: 3,
       useCORS: true,
       logging: false,
@@ -1450,7 +1451,7 @@ function App() {
   const adminKickMember = (roomId, memberName) => {
     const cleanId = String(roomId || '').replace('#', '');
     console.log(`[正式踢除] 房號: ${cleanId}, 成員: ${memberName}`);
-    
+
     if (!window.confirm(`確定要將成員 ${memberName} 【強制下車】嗎？`)) return;
 
     remove(ref(db, `rooms/${cleanId}/members/${memberName}`))
@@ -1458,7 +1459,7 @@ function App() {
         const summary = roomSummaries[cleanId];
         if (summary) {
           const newNames = (summary.memberNames || []).filter(n => n !== memberName);
-          const updates = { 
+          const updates = {
             memberNames: newNames,
             onlineCount: newNames.length,
             conductor: summary.conductor === memberName && newNames.length > 0 ? newNames[0] : summary.conductor
@@ -1477,17 +1478,17 @@ function App() {
     if (!currentUser) return;
     const inputEl = document.getElementById('applyNicknameInput');
     const nicknameInput = inputEl ? inputEl.value.trim() : currentUser.displayName;
-    
+
     if (inputEl && !nicknameInput) {
       alert("請填寫您的遊戲暱稱後再提交申請！");
       return;
     }
 
-    const updates = { 
+    const updates = {
       status: 'pending',
       appliedAt: Date.now()
     };
-    
+
     if (nicknameInput) {
       updates.nickname = nicknameInput;
       updates.displayName = nicknameInput;
@@ -1495,17 +1496,17 @@ function App() {
 
     update(ref(db, `users/${currentUser.uid}`), updates);
     if (nicknameInput) setUserName(nicknameInput);
-    
+
     // 即時切換畫面到「審核中」等候區
-    setCurrentUser(prev => prev ? { 
-      ...prev, 
-      profile: { 
-        ...prev.profile, 
-        status: 'pending', 
-        ...(nicknameInput ? { nickname: nicknameInput, displayName: nicknameInput } : {}) 
-      } 
+    setCurrentUser(prev => prev ? {
+      ...prev,
+      profile: {
+        ...prev.profile,
+        status: 'pending',
+        ...(nicknameInput ? { nickname: nicknameInput, displayName: nicknameInput } : {})
+      }
     } : null);
-    
+
     alert("🚀 申請已送出！請等待指揮官審核。");
   };
 
@@ -1523,7 +1524,7 @@ function App() {
   const adminTransferConductor = (roomId, newConductor) => {
     const cleanId = String(roomId || '').replace('#', '');
     console.log(`[正式轉移] 房號: ${cleanId}, 新車長: ${newConductor}`);
-    
+
     if (!window.confirm(`確定要將房號 ${cleanId} 的【車長】轉移給 ${newConductor} 嗎？`)) return;
 
     const updates = { conductor: newConductor };
@@ -1531,28 +1532,28 @@ function App() {
       update(ref(db, `rooms/${cleanId}`), updates),
       update(ref(db, `roomSummaries/${cleanId}`), updates)
     ])
-    .then(() => alert("👑 車長授權成功！"))
-    .catch(err => alert("❌ 轉移失敗: " + err.message));
+      .then(() => alert("👑 車長授權成功！"))
+      .catch(err => alert("❌ 轉移失敗: " + err.message));
   };
 
   const adminResetUserStats = async (uid) => {
     if (!window.confirm("確定要【重置】該成員的所有打王數據與時長嗎？此動作亦會清除排行榜紀錄，且不可逆！")) return;
-    
+
     const yyyymm = getYearMonth();
     const updates = {};
-    
+
     // 1. 清除個人 Profile 節點
     updates[`users/${uid}/totalKills`] = 0;
     updates[`users/${uid}/totalHours`] = 0;
     updates[`users/${uid}/bossStats`] = null;
     updates[`users/${uid}/recentActivity`] = null;
-    
+
     // 2. 同步清除排行榜紀錄 (v6.4)
     updates[`rankings/allTime/kills/${uid}`] = null;
     updates[`rankings/allTime/hours/${uid}`] = null;
     updates[`rankings/monthly/${yyyymm}/kills/${uid}`] = null;
     updates[`rankings/monthly/${yyyymm}/hours/${uid}`] = null;
-    
+
     try {
       await update(ref(db), updates);
       alert("✅ 數據已重置！系統將重新抓取數據。");
@@ -1565,16 +1566,16 @@ function App() {
 
   const adminBanUser = (uid, name) => {
     if (!window.confirm(`確定要將成員 [${name}] 【永久剔除】嗎？\n(⚠️ 此動作將完全清除該使用者的 Firebase 資料與名錄紀錄)`)) return;
-    
+
     // 1. 先將狀態設為 rejected，觸發對方的即時防護機制 (瞬間踢出畫面)
     update(ref(db, `users/${uid}`), { status: 'rejected' });
-    
+
     // 2. 緩衝 2 秒確保對方已被踢出後，徹底抹除 Firebase 上的完整紀錄
     setTimeout(() => {
       remove(ref(db, `users/${uid}`));
       remove(ref(db, `presence/${uid}`));
     }, 2000);
-    
+
     // 3. 即時從本地端名錄畫面中抹除，不再顯示
     setAllUsers(prev => {
       const updated = { ...prev };
@@ -1625,10 +1626,10 @@ function App() {
           <div className="admin-broadcast-section">
             <h3>📢 全域語音廣播</h3>
             <div className="broadcast-input-group">
-              <input 
-                type="text" 
-                placeholder="在此輸入重要廣播訊息..." 
-                value={broadcastInput} 
+              <input
+                type="text"
+                placeholder="在此輸入重要廣播訊息..."
+                value={broadcastInput}
                 onChange={e => setBroadcastInput(e.target.value)}
                 onKeyPress={e => e.key === 'Enter' && sendGlobalBroadcast()}
               />
@@ -1655,19 +1656,19 @@ function App() {
                               return (
                                 <div key={m} className={`admin-member-tag ${isCond ? 'is-cond' : ''}`}>
                                   <span className="m-name">{isCond ? '👑' : ''} {m}</span>
-                                  <div className="admin-inline-actions" style={{display: 'inline-flex', gap: '4px', marginLeft: '8px'}}>
+                                  <div className="admin-inline-actions" style={{ display: 'inline-flex', gap: '4px', marginLeft: '8px' }}>
                                     {!isCond && (
-                                      <button 
-                                        className="btn-micro" 
-                                        style={{background: '#f6cf57', color: '#000', padding: '2px 6px', fontSize: '10px'}}
+                                      <button
+                                        className="btn-micro"
+                                        style={{ background: '#f6cf57', color: '#000', padding: '2px 6px', fontSize: '10px' }}
                                         onClick={() => adminTransferConductor(r.id, m)}
                                       >
                                         轉移
                                       </button>
                                     )}
-                                    <button 
-                                      className="btn-micro" 
-                                      style={{background: '#ff4444', color: '#fff', padding: '2px 6px', fontSize: '10px'}}
+                                    <button
+                                      className="btn-micro"
+                                      style={{ background: '#ff4444', color: '#fff', padding: '2px 6px', fontSize: '10px' }}
                                       onClick={() => adminKickMember(r.id, m)}
                                     >
                                       踢除
@@ -1688,7 +1689,7 @@ function App() {
                   })}
                 </tbody>
               </table>
-              
+
             </div>
 
           ) : (
@@ -1697,7 +1698,7 @@ function App() {
               {/* Podium Reconstruction: 2nd - 1st - 3rd */}
               <div className="podium-section" style={{ margin: '20px 0', position: 'relative' }}>
                 <h3>
-                  🛡️ 申請等待區 (Pending Requests) 
+                  🛡️ 申請等待區 (Pending Requests)
                   {Object.keys(pendingUsers).length > 0 && <span className="admin-pulse-indicator"></span>}
                 </h3>
                 {Object.keys(pendingUsers).length > 0 ? (
@@ -1719,7 +1720,7 @@ function App() {
                     ))}
                   </div>
                 ) : (
-                  <div style={{padding: '15px', color: '#888', textAlign: 'center', fontSize: '14px'}}>
+                  <div style={{ padding: '15px', color: '#888', textAlign: 'center', fontSize: '14px' }}>
                     ✅ 目前無任何待審核的入隊申請
                   </div>
                 )}
@@ -1730,9 +1731,9 @@ function App() {
                   <div className="bandwidth-warning-box">
                     <h4>⚠️ 頻寬最佳化提示</h4>
                     <p>管理員名錄包含公會全體成員資料，讀取完整名錄會消耗大量流量。建議僅在維護時開啟。</p>
-                    <button 
-                      className="btn-v9-report" 
-                      style={{marginTop: '20px', padding: '15px 40px'}} 
+                    <button
+                      className="btn-v9-report"
+                      style={{ marginTop: '20px', padding: '15px 40px' }}
                       onClick={fetchAllUsers}
                       disabled={isUsersLoading}
                     >
@@ -1748,14 +1749,14 @@ function App() {
                       <button className={adminUserSubTab === 'directory' ? 'active' : ''} onClick={() => setAdminUserSubTab('directory')}>🗒️ 名錄管理</button>
                     </div>
                     <div className="admin-search-bar">
-                      <input 
-                        type="text" 
-                        placeholder="搜尋暱稱或 UID..." 
+                      <input
+                        type="text"
+                        placeholder="搜尋暱稱或 UID..."
                         value={adminUserSearchTerm}
                         onChange={e => setAdminUserSearchTerm(e.target.value)}
                       />
                     </div>
-                    <button className="btn-v9-grey" onClick={fetchAllUsers} style={{marginLeft: '10px'}} disabled={isUsersLoading}>
+                    <button className="btn-v9-grey" onClick={fetchAllUsers} style={{ marginLeft: '10px' }} disabled={isUsersLoading}>
                       {isUsersLoading ? '刷新中...' : '🔄 重新整理'}
                     </button>
                   </div>
@@ -1768,13 +1769,13 @@ function App() {
                           {userList
                             .filter(u => (u.nickname || u.displayName || '').includes(adminUserSearchTerm) || u.uid.includes(adminUserSearchTerm))
                             .map(u => (
-                            <tr key={u.uid}>
-                              <td className="admin-uid code-font" style={{wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px'}}>{u.uid}</td>
-                              <td className="admin-nickname">{u.nickname || u.displayName}</td>
-                              <td className="admin-kills">{u.totalKills || 0}</td>
-                              <td>{(u.totalHours || 0).toFixed(1)} h</td>
-                            </tr>
-                          ))}
+                              <tr key={u.uid}>
+                                <td className="admin-uid code-font" style={{ wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px' }}>{u.uid}</td>
+                                <td className="admin-nickname">{u.nickname || u.displayName}</td>
+                                <td className="admin-kills">{u.totalKills || 0}</td>
+                                <td>{(u.totalHours || 0).toFixed(1)} h</td>
+                              </tr>
+                            ))}
                         </tbody>
                       </table>
                     ) : (
@@ -1786,39 +1787,40 @@ function App() {
                             .map(u => {
                               const rInfo = getRoleInfo(u.uid);
                               return (
-                            <tr key={u.uid}>
-                              <td className="admin-user-cell">
-                                {renderAvatar(u.photoURL, "admin-mini-avatar")}
-                                <span>{u.nickname || u.displayName}</span>
-                              </td>
-                              <td className="admin-uid code-font" style={{wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px'}}>{u.uid}</td>
-                              <td>
-                                <div style={{color: rInfo.color, fontWeight: 'bold'}}>{rInfo.role}</div>
-                                <div style={{fontSize: '10px', opacity: 0.7, marginTop: '2px'}}>{rInfo.desc}</div>
-                              </td>
-                              <td>
-                                {u.status === 'rejected' ? (
-                                  <span style={{ color: '#ff4444', fontWeight: 'bold' }}>🔴 已停權</span>
-                                ) : (
-                                  <>
-                                    <span className={`status-dot ${u.isOnline ? 'online' : 'offline'}`}></span>
-                                    {u.isOnline ? '線上' : '離線'}
-                                  </>
-                                )}
-                              </td>
-                              <td className="location-text">{getUserCurrentLocation(u.nickname || u.displayName)}</td>
-                              <td className="date-text">{u.createdAt ? new Date(u.createdAt).toLocaleString([], {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit'}) : '早期成員'}</td>
-                                <td>
-                                  {/* 允許 Pika 重置自己的數據 (v6.4) */}
-                                  {(u.uid !== PIKA_UID || currentUser.uid === PIKA_UID) && (
-                                    <button className="btn-danger btn-micro" onClick={() => adminResetUserStats(u.uid)}>重置</button>
-                                  )}
-                                {(currentUser.uid === PIKA_UID ? u.uid !== PIKA_UID : (u.uid !== PIKA_UID && u.uid !== ADMIN_UID)) && (
-                                  <button className="btn-danger btn-micro" style={{marginLeft: '5px', background: 'rgba(255,0,0,0.2)'}} onClick={() => adminBanUser(u.uid, u.nickname || u.displayName)}>剔除</button>
-                                )}
-                              </td>
-                            </tr>
-                          )})}
+                                <tr key={u.uid}>
+                                  <td className="admin-user-cell">
+                                    {renderAvatar(u.photoURL, "admin-mini-avatar")}
+                                    <span>{u.nickname || u.displayName}</span>
+                                  </td>
+                                  <td className="admin-uid code-font" style={{ wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px' }}>{u.uid}</td>
+                                  <td>
+                                    <div style={{ color: rInfo.color, fontWeight: 'bold' }}>{rInfo.role}</div>
+                                    <div style={{ fontSize: '10px', opacity: 0.7, marginTop: '2px' }}>{rInfo.desc}</div>
+                                  </td>
+                                  <td>
+                                    {u.status === 'rejected' ? (
+                                      <span style={{ color: '#ff4444', fontWeight: 'bold' }}>🔴 已停權</span>
+                                    ) : (
+                                      <>
+                                        <span className={`status-dot ${u.isOnline ? 'online' : 'offline'}`}></span>
+                                        {u.isOnline ? '線上' : '離線'}
+                                      </>
+                                    )}
+                                  </td>
+                                  <td className="location-text">{getUserCurrentLocation(u.nickname || u.displayName)}</td>
+                                  <td className="date-text">{u.createdAt ? new Date(u.createdAt).toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '早期成員'}</td>
+                                  <td>
+                                    {/* 允許 Pika 重置自己的數據 (v6.4) */}
+                                    {(u.uid !== PIKA_UID || currentUser.uid === PIKA_UID) && (
+                                      <button className="btn-danger btn-micro" onClick={() => adminResetUserStats(u.uid)}>重置</button>
+                                    )}
+                                    {(currentUser.uid === PIKA_UID ? u.uid !== PIKA_UID : (u.uid !== PIKA_UID && u.uid !== ADMIN_UID)) && (
+                                      <button className="btn-danger btn-micro" style={{ marginLeft: '5px', background: 'rgba(255,0,0,0.2)' }} onClick={() => adminBanUser(u.uid, u.nickname || u.displayName)}>剔除</button>
+                                    )}
+                                  </td>
+                                </tr>
+                              )
+                            })}
                         </tbody>
                       </table>
                     )}
@@ -1826,7 +1828,7 @@ function App() {
                 </>
               )}
             </div>
-            )}
+          )}
 
           {/* 移除原本這裡的 adminMenu 區塊 */}
         </div>
@@ -1842,7 +1844,7 @@ function App() {
   const renderMedalOverview = () => {
     const userKills = currentUser?.profile?.totalKills || 0;
     const currentRank = getRankInfo(userKills);
-    
+
     return (
       <div className="medal-hall-container fade-in">
         <header className="medal-hall-header">
@@ -1853,11 +1855,11 @@ function App() {
           <div className="hall-summary glass-panel">
             <div className="summary-main">
               <span className="s-label">當前名望：</span>
-              <span className="s-title" style={{color: currentRank.color}}>{currentRank.fullTitle}</span>
+              <span className="s-title" style={{ color: currentRank.color }}>{currentRank.fullTitle}</span>
               <span className="s-level">Lv.{currentRank.level}</span>
             </div>
             <div className="summary-progress">
-              <div className="p-bar-bg"><div className="p-bar-fill" style={{width: `${currentRank.progress}%`, background: currentRank.color}}></div></div>
+              <div className="p-bar-bg"><div className="p-bar-fill" style={{ width: `${currentRank.progress}%`, background: currentRank.color }}></div></div>
               <div className="p-text">
                 {currentRank.nextKills > 0 ? `距離下一階級還差 ${currentRank.nextKills} 擊殺` : '已達成最高榮耀'}
               </div>
@@ -1869,19 +1871,19 @@ function App() {
           {RANKS_CONFIG.map((rank, idx) => {
             const isUnlocked = userKills >= rank.minKills;
             const isCurrentTitle = currentRank.title === rank.title;
-            
+
             return (
-              <div 
-                key={idx} 
+              <div
+                key={idx}
                 className={`medal-card ${isUnlocked ? 'unlocked' : ''} ${isCurrentTitle ? 'active' : ''}`}
-                onClick={() => setSelectedMedal({...rank, levelRange: `Lv.${idx*5+1} - ${idx*5+5}`})}
+                onClick={() => setSelectedMedal({ ...rank, levelRange: `Lv.${idx * 5 + 1} - ${idx * 5 + 5}` })}
               >
-                <div className="m-badge" style={{borderColor: isUnlocked ? rank.color : 'rgba(255,255,255,0.1)'}}>
+                <div className="m-badge" style={{ borderColor: isUnlocked ? rank.color : 'rgba(255,255,255,0.1)' }}>
                   <span className="m-icon">{rank.badge}</span>
-                  {isUnlocked && <div className="m-glow" style={{background: rank.color}}></div>}
+                  {isUnlocked && <div className="m-glow" style={{ background: rank.color }}></div>}
                 </div>
                 <div className="m-info">
-                  <div className="m-name" style={{color: isUnlocked ? '#fff' : '#444'}}>{rank.title}</div>
+                  <div className="m-name" style={{ color: isUnlocked ? '#fff' : '#444' }}>{rank.title}</div>
                   <div className="m-req">{isUnlocked ? '已達成' : `解鎖: ${rank.minKills}`}</div>
                   {isCurrentTitle && <div className="m-current-tag">CURRENT</div>}
                 </div>
@@ -1895,11 +1897,11 @@ function App() {
           <div className="medal-detail-overlay fade-in" onClick={() => setSelectedMedal(null)}>
             <div className="medal-detail-popup glass-panel" onClick={e => e.stopPropagation()}>
               <button className="close-popup-btn" onClick={() => setSelectedMedal(null)}>×</button>
-              <div className="p-badge-large" style={{borderColor: selectedMedal.color}}>
+              <div className="p-badge-large" style={{ borderColor: selectedMedal.color }}>
                 <span className="p-icon-large">{selectedMedal.badge}</span>
-                <div className="p-glow-large" style={{background: selectedMedal.color}}></div>
+                <div className="p-glow-large" style={{ background: selectedMedal.color }}></div>
               </div>
-              <h2 style={{color: selectedMedal.color}}>{selectedMedal.title}</h2>
+              <h2 style={{ color: selectedMedal.color }}>{selectedMedal.title}</h2>
               <div className="p-level-tag">{selectedMedal.levelRange}</div>
               <p className="p-description">“ {selectedMedal.desc} ”</p>
               <div className="p-stats-row">
@@ -1912,11 +1914,11 @@ function App() {
                   <span className="p-s-value">每階 {selectedMedal.scale} 殺</span>
                 </div>
               </div>
-              <button className="v9-btn-confirm" onClick={() => setSelectedMedal(null)} style={{marginTop: '30px', width: '100%'}}>確認收到榮耀</button>
+              <button className="v9-btn-confirm" onClick={() => setSelectedMedal(null)} style={{ marginTop: '30px', width: '100%' }}>確認收到榮耀</button>
             </div>
           </div>
         )}
-        
+
         <button className="v9-btn-secondary back-lobby-btn" onClick={() => setView('lobby')}>返回大廳中心</button>
       </div>
     );
@@ -1926,7 +1928,7 @@ function App() {
     const podium = leaderboardData.slice(0, 3);
     const rest = leaderboardData.slice(3);
     const isKills = leaderboardMetric === 'kills';
-    
+
     const renderPodiumPlaceholder = (rankText) => (
       <div className="podium-placeholder">
         <span>{rankText} WAIT...</span>
@@ -1938,7 +1940,7 @@ function App() {
         <div className="leaderboard-header">
           <button className="btn-secondary-glass" onClick={() => setView('lobby')}>⬅ 返回大廳中心</button>
           <div className="leaderboard-title-group">
-            <h2 className="boss-highlight">PiKaPi 榮譽殿堂 <small style={{fontSize:'0.6rem', opacity:0.5, verticalAlign:'middle'}}>V10-ULTIMATE</small></h2>
+            <h2 className="boss-highlight">PiKaPi 榮譽殿堂 <small style={{ fontSize: '0.6rem', opacity: 0.5, verticalAlign: 'middle' }}>V10-ULTIMATE</small></h2>
             <p className="subtitle">匯集頂尖戰意與不朽戰果的殿堂</p>
           </div>
           <div className="leaderboard-period-select">
@@ -1958,7 +1960,7 @@ function App() {
             <button className={leaderboardPeriod === 'monthly' ? 'active' : ''} onClick={() => { setLeaderboardPeriod('monthly'); setHasInitialRankingsFetch(false); }}>月賽季排行</button>
           </div>
           {leaderboardPeriod === 'monthly' && (
-            <select className="v9-profile-input" style={{width:'auto', background:'rgba(0,0,0,0.3)', color:'#fff', border:'1px solid var(--glass-border)', padding:'5px', borderRadius:'8px'}} value={leaderboardMonth} onChange={e => { setLeaderboardMonth(e.target.value); setHasInitialRankingsFetch(false); }}>
+            <select className="v9-profile-input" style={{ width: 'auto', background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid var(--glass-border)', padding: '5px', borderRadius: '8px' }} value={leaderboardMonth} onChange={e => { setLeaderboardMonth(e.target.value); setHasInitialRankingsFetch(false); }}>
               {availableRankMonths.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           )}
@@ -1967,15 +1969,15 @@ function App() {
         <div className="podium-section">
           {!hasInitialRankingsFetch && !isLeaderboardLoading && (
             <div className="dormant-hall-overlay">
-              <button 
-                className={`v9-btn-report ${syncCooldown > 0 ? 'is-cooling' : ''}`} 
-                style={{padding:'20px 40px', fontSize:'1.2rem', boxShadow:'0 0 40px var(--pink-glow)'}} 
+              <button
+                className={`v9-btn-report ${syncCooldown > 0 ? 'is-cooling' : ''}`}
+                style={{ padding: '20px 40px', fontSize: '1.2rem', boxShadow: '0 0 40px var(--pink-glow)' }}
                 onClick={() => fetchLeaderboard(true)}
                 disabled={syncCooldown > 0}
               >
                 {syncCooldown > 0 ? `📡 冷卻等待中 (${syncCooldown}s)` : '📡 載入殿堂數據 (V10)'}
               </button>
-              <p style={{marginTop:'15px', color:'var(--gold)', opacity:0.8, fontSize:'0.8rem', letterSpacing:'1px'}}>
+              <p style={{ marginTop: '15px', color: 'var(--gold)', opacity: 0.8, fontSize: '0.8rem', letterSpacing: '1px' }}>
                 {syncCooldown > 0 ? '戰略冷卻中，請喝杯水稍候再啟動同步' : '數據已靜止，點擊啟動戰略同步'}
               </p>
             </div>
@@ -1987,7 +1989,7 @@ function App() {
               <div className="v9-podium-card v9-rank-2">
                 <div className="rank-label">NO.2 SILVER</div>
                 <div className="v9-avatar-wrap">
-                  {renderAvatar(podium[1].a, "podium-avatar", {width:'80px', height:'80px', border:'3px solid #C0C0C0'})}
+                  {renderAvatar(podium[1].a, "podium-avatar", { width: '80px', height: '80px', border: '3px solid #C0C0C0' })}
                 </div>
                 <div className="podium-name">{podium[1].n}</div>
                 <div className="podium-value">{podium[1].v.toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></div>
@@ -2000,11 +2002,11 @@ function App() {
               <div className="v9-podium-card v9-rank-1">
                 <div className="rank-label">NO.1 CHAMPION</div>
                 <div className="v9-avatar-wrap">
-                  <div className="crown-icon" style={{fontSize: '2.5rem', top: '-45px'}}>👑</div>
-                  {renderAvatar(podium[0].a, "podium-avatar", {width:'110px', height:'110px', border:'4px solid var(--gold)', boxShadow:'0 0 30px var(--gold-glow)'})}
+                  <div className="crown-icon" style={{ fontSize: '2.5rem', top: '-45px' }}>👑</div>
+                  {renderAvatar(podium[0].a, "podium-avatar", { width: '110px', height: '110px', border: '4px solid var(--gold)', boxShadow: '0 0 30px var(--gold-glow)' })}
                 </div>
-                <div className="podium-name" style={{fontSize:'1.4rem'}}>{podium[0].n}</div>
-                <div className="podium-value" style={{fontSize:'1.8rem'}}>{podium[0].v.toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></div>
+                <div className="podium-name" style={{ fontSize: '1.4rem' }}>{podium[0].n}</div>
+                <div className="podium-value" style={{ fontSize: '1.8rem' }}>{podium[0].v.toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></div>
                 <div className="digital-pillar"></div>
               </div>
             ) : renderPodiumPlaceholder('NO.1')}
@@ -2014,7 +2016,7 @@ function App() {
               <div className="v9-podium-card v9-rank-3">
                 <div className="rank-label">NO.3 BRONZE</div>
                 <div className="v9-avatar-wrap">
-                  {renderAvatar(podium[2].a, "podium-avatar", {width:'75px', height:'75px', border:'3px solid #CD7F32'})}
+                  {renderAvatar(podium[2].a, "podium-avatar", { width: '75px', height: '75px', border: '3px solid #CD7F32' })}
                 </div>
                 <div className="podium-name">{podium[2].n}</div>
                 <div className="podium-value">{podium[2].v.toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></div>
@@ -2028,28 +2030,28 @@ function App() {
           <table className="v9-tactical-table">
             <thead>
               <tr>
-                <th style={{textAlign: 'center', width: '120px'}}>RANKING</th>
+                <th style={{ textAlign: 'center', width: '120px' }}>RANKING</th>
                 <th>MEMBER</th>
-                <th style={{textAlign: 'right'}}>VALUE ({isKills ? 'KILLS' : 'HOURS'})</th>
+                <th style={{ textAlign: 'right' }}>VALUE ({isKills ? 'KILLS' : 'HOURS'})</th>
               </tr>
             </thead>
             <tbody>
               {/* --- 豪豪 (MY TACTICAL STATS) 置頂 Hero Row (v8.0) --- */}
               {currentUser && (
                 <tr className="v9-row v9-row-hero">
-                  <td className="col-rank" style={{textAlign: 'center'}}>
+                  <td className="col-rank" style={{ textAlign: 'center' }}>
                     <span className="hero-badge">MY STATS</span>
                   </td>
                   <td className="col-member">
-                    <div className="admin-user-cell" style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
-                      {renderAvatar(currentUser.profile?.photoURL, "admin-mini-avatar", {width:'36px', height:'36px', border:'2px solid var(--gold)'})}
-                      <div style={{display: 'flex', flexDirection: 'column'}}>
-                        <span style={{fontWeight:'950', color:'#fff'}}>{userName}</span>
-                        <span style={{fontSize:'10px', opacity:0.6}}>RANK: {getRankInfo(currentUser.profile?.totalKills || 0).title}</span>
+                    <div className="admin-user-cell" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                      {renderAvatar(currentUser.profile?.photoURL, "admin-mini-avatar", { width: '36px', height: '36px', border: '2px solid var(--gold)' })}
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: '950', color: '#fff' }}>{userName}</span>
+                        <span style={{ fontSize: '10px', opacity: 0.6 }}>RANK: {getRankInfo(currentUser.profile?.totalKills || 0).title}</span>
                       </div>
                     </div>
                   </td>
-                  <td className="col-value highlight-num" style={{textAlign: 'right'}}>
+                  <td className="col-value highlight-num" style={{ textAlign: 'right' }}>
                     {isKills ? (currentUser.profile?.totalKills || 0) : (currentUser.profile?.totalHours || 0).toFixed(1)}
                   </td>
                 </tr>
@@ -2057,18 +2059,18 @@ function App() {
 
               {rest.map((u, i) => (
                 <tr key={u.uid} className="v9-row">
-                  <td className="col-rank" style={{textAlign: 'center'}}>#{i + 4}</td>
+                  <td className="col-rank" style={{ textAlign: 'center' }}>#{i + 4}</td>
                   <td className="col-member">
-                    <div className="admin-user-cell" style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
-                      {renderAvatar(u.a, "admin-mini-avatar", {width:'36px', height:'36px'})}
-                      <span style={{fontWeight:'800'}}>{u.n}</span>
+                    <div className="admin-user-cell" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                      {renderAvatar(u.a, "admin-mini-avatar", { width: '36px', height: '36px' })}
+                      <span style={{ fontWeight: '800' }}>{u.n}</span>
                     </div>
                   </td>
-                  <td className="col-value highlight-num" style={{textAlign: 'right'}}>{u.v.toFixed(isKills ? 0 : 1)}</td>
+                  <td className="col-value highlight-num" style={{ textAlign: 'right' }}>{u.v.toFixed(isKills ? 0 : 1)}</td>
                 </tr>
               ))}
               {leaderboardData.length === 0 && !isLeaderboardLoading && hasInitialRankingsFetch && (
-                <tr><td colSpan="3" style={{textAlign:'center', padding:'80px', opacity:0.3, letterSpacing:'2px'}}>殿堂尚無紀綠，請手動刷新</td></tr>
+                <tr><td colSpan="3" style={{ textAlign: 'center', padding: '80px', opacity: 0.3, letterSpacing: '2px' }}>殿堂尚無紀綠，請手動刷新</td></tr>
               )}
             </tbody>
           </table>
@@ -2084,9 +2086,9 @@ function App() {
         return (
           <div className="landing-page-container">
             <div className="landing-content glass-panel">
-              <h1 className="landing-title neon-text">PIKAPI<br/>GUILD TRACKER</h1>
+              <h1 className="landing-title neon-text">PIKAPI<br />GUILD TRACKER</h1>
               <p className="landing-subtitle">專業公會戰役管理・專屬戰報・把愛傳下去 v3.0</p>
-              
+
               {!isNativeAuthVisible ? (
                 <div className="auth-options fade-in">
                   <button className="login-btn-large google-btn" onClick={handleLogin}>
@@ -2104,33 +2106,33 @@ function App() {
                     <h3>{isRegisterMode ? '建立新帳號' : '帳號登入'}</h3>
                     <button type="button" className="close-form-btn" onClick={() => setIsNativeAuthVisible(false)}>返回</button>
                   </div>
-                  
+
                   <div className="input-group-v9">
                     <label>電子郵件 (Email)</label>
-                    <input 
-                      type="email" 
-                      placeholder="example@mail.com" 
-                      value={authEmail} 
+                    <input
+                      type="email"
+                      placeholder="example@mail.com"
+                      value={authEmail}
                       onChange={e => setAuthEmail(e.target.value)}
                     />
                   </div>
-                  
+
                   <div className="input-group-v9">
                     <label>密碼 (Password)</label>
-                    <input 
-                      type="password" 
-                      placeholder="至少 6 位數" 
-                      value={authPassword} 
+                    <input
+                      type="password"
+                      placeholder="至少 6 位數"
+                      value={authPassword}
                       onChange={e => setAuthPassword(e.target.value)}
                     />
                   </div>
 
                   {authError && <div className="auth-error-msg">{authError}</div>}
-                  
+
                   <button type="submit" className="submit-auth-btn">
                     {isRegisterMode ? '立即註冊' : '確認登入'}
                   </button>
-                  
+
                   <div className="auth-footer">
                     <span>{isRegisterMode ? '已有帳號？' : '還沒有帳號？'}</span>
                     <button type="button" className="toggle-mode-btn" onClick={() => {
@@ -2146,7 +2148,7 @@ function App() {
           </div>
         );
       }
-      
+
       // 未申請的使用者畫面 (v4.9)
       if (currentUser && currentUser.profile?.status === 'new' && view === 'landing') {
         return (
@@ -2164,24 +2166,24 @@ function App() {
                   </span>
                 </div>
               )}
-              <p className="landing-subtitle">請填寫您的遊戲暱稱並向管理員提交申請，<br/>審核通過後即可開始紀錄。 v2.1</p>
+              <p className="landing-subtitle">請填寫您的遊戲暱稱並向管理員提交申請，<br />審核通過後即可開始紀錄。 v2.1</p>
               <div style={{ marginTop: '10px', marginBottom: '20px', width: '100%', display: 'flex', justifyContent: 'center' }}>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   id="applyNicknameInput"
-                  className="v9-profile-input" 
+                  className="v9-profile-input"
                   style={{ width: '80%', padding: '12px', fontSize: '16px', textAlign: 'center', background: 'rgba(0,0,0,0.5)' }}
-                  placeholder="請輸入您的遊戲暱稱 (必填)" 
+                  placeholder="請輸入您的遊戲暱稱 (必填)"
                   defaultValue={userName !== '新隊員' ? userName : ''}
                 />
               </div>
               <button className="apply-btn-premium" onClick={applyForMembership}>
                 🚀 提交加入申請
               </button>
-              <button 
-                className="btn-danger" 
-                onClick={handleLogout} 
-                style={{marginTop: '20px', background: 'transparent', border: 'none', textDecoration: 'underline', color: 'rgba(255,255,255,0.4)'}}
+              <button
+                className="btn-danger"
+                onClick={handleLogout}
+                style={{ marginTop: '20px', background: 'transparent', border: 'none', textDecoration: 'underline', color: 'rgba(255,255,255,0.4)' }}
               >
                 切換帳號登出
               </button>
@@ -2193,7 +2195,7 @@ function App() {
 
       if (view === 'admin' && isAdmin) return renderAdminDashboard();
       if (view === 'leaderboard') return renderLeaderboardView();
-      
+
       // 等待審核或被拒絕的特殊視圖 (v4.9)
       if (currentUser && currentUser.uid !== PIKA_UID && (userStatus === 'rejected' || (!isAdmin && userStatus !== 'approved'))) {
         const isPending = userStatus === 'pending';
@@ -2207,25 +2209,25 @@ function App() {
               </div>
               <h1>{isRejected ? '申請未通過' : '入隊申請審核中'}</h1>
               <p className="landing-subtitle">
-                {isRejected 
-                  ? '很遺憾，您的申請暫時未獲核准。如有疑問請洽公會幹部。' 
+                {isRejected
+                  ? '很遺憾，您的申請暫時未獲核准。如有疑問請洽公會幹部。'
                   : '指揮官正在審核您的申請，請耐心等候。通過後將自動進入大廳。'}
               </p>
-              <div className="waiting-actions" style={{marginTop: '30px'}}>
+              <div className="waiting-actions" style={{ marginTop: '30px' }}>
                 {isRejected && (
                   <>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       id="applyNicknameInput"
-                      className="v9-profile-input" 
+                      className="v9-profile-input"
                       style={{ width: '80%', padding: '10px', fontSize: '14px', textAlign: 'center', background: 'rgba(0,0,0,0.5)', marginBottom: '15px' }}
-                      placeholder="更新您的遊戲暱稱 (必填)" 
+                      placeholder="更新您的遊戲暱稱 (必填)"
                       defaultValue={userName !== '新隊員' ? userName : ''}
                     />
                     <button className="login-btn-large" onClick={applyForMembership}>重新提交申請</button>
                   </>
                 )}
-                <button className="btn-danger" onClick={handleLogout} style={{marginTop: '15px'}}>登出帳號</button>
+                <button className="btn-danger" onClick={handleLogout} style={{ marginTop: '15px' }}>登出帳號</button>
               </div>
             </div>
           </div>
@@ -2235,7 +2237,7 @@ function App() {
       if (view === 'profile') {
         const stats = currentUser.profile?.bossStats || {};
         const rank = getRankInfo(currentUser.profile?.totalKills, currentUser.profile?.totalHours);
-        
+
         return (
           <div className="profile-page-container">
             <div className="profile-card glass-panel">
@@ -2255,7 +2257,7 @@ function App() {
                   <h2 className="profile-full-title" style={{ color: rank.color }}>{rank.fullTitle}</h2>
                   <div className="rank-pill-badge">Lv.{rank.level}</div>
                   <p className="profile-user-name">暱稱: {userName}</p>
-                  <p className="profile-uid" style={{fontSize: '10px', opacity: 0.5}}>{currentUser.uid}</p>
+                  <p className="profile-uid" style={{ fontSize: '10px', opacity: 0.5 }}>{currentUser.uid}</p>
                   <div className="profile-edit-name">
                     <input type="text" className="v9-profile-input" defaultValue={userName} id="profileNameInput" placeholder="暱稱" />
                     <button className="v9-btn-primary" onClick={() => updateProfileName(document.getElementById('profileNameInput').value)}>更新名稱</button>
@@ -2263,7 +2265,7 @@ function App() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="profile-stats-summary">
                 <div className="stat-main">
                   <span className="label">總擊殺紀錄</span>
@@ -2302,7 +2304,7 @@ function App() {
                   {(currentUser.profile?.recentActivity || []).length === 0 && <div className="empty-msg">尚無擊殺紀錄，快去打王吧！</div>}
                   {(currentUser.profile?.recentActivity || []).map((act, i) => (
                     <div key={i} className="activity-item">
-                      <span className="act-time">{new Date(act.at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                      <span className="act-time">{new Date(act.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       <span className="act-boss">{act.bossName}</span>
                       <span className="act-ch">{act.ch}</span>
                       <span className="act-badge">擊殺 ✅</span>
@@ -2310,7 +2312,7 @@ function App() {
                   ))}
                 </div>
               </div>
-              
+
               <button className="v9-btn-secondary back-lobby-btn" onClick={() => setView('lobby')}>返回大廳中心</button>
             </div>
           </div>
@@ -2329,8 +2331,8 @@ function App() {
                 <label className="hud-label">BOSS 選擇：</label>
                 <div className="v105-boss-grid">
                   {Object.entries(BOSSES).map(([id, boss]) => (
-                    <div 
-                      key={id} 
+                    <div
+                      key={id}
                       className={`v105-boss-chip theme-${id} ${selectedBossId === id ? 'active' : ''}`}
                       onClick={() => setSelectedBossId(id)}
                     >
@@ -2347,7 +2349,7 @@ function App() {
                 </button>
                 <div className="sync-status-v105">
                   <button className="sync-btn-v105" onClick={fetchRoomSummaries}>🔄</button>
-                  <p className="last-sync">上次更新於 {lastSummariesUpdate ? new Date(lastSummariesUpdate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}) : '尚未更新'}</p>
+                  <p className="last-sync">上次更新於 {lastSummariesUpdate ? new Date(lastSummariesUpdate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '尚未更新'}</p>
                 </div>
               </div>
             </section>
@@ -2361,13 +2363,13 @@ function App() {
                     <b>戰區直連：</b>您目前在 <b>{BOSSES[roomSummaries[lastJoinedRoomId]?.bossId]?.name || '未知目標'}</b> 的指揮頻道中
                   </span>
                 </div>
-                <button className="jump-back-btn-v11" onClick={() => { 
-                  setCurrentRoomId(lastJoinedRoomId); 
+                <button className="jump-back-btn-v11" onClick={() => {
+                  setCurrentRoomId(lastJoinedRoomId);
                   const myData = roomSummaries[lastJoinedRoomId]?.members?.[userName];
                   if (myData && myData.joinedAt) {
                     setSessionStartTime(myData.joinedAt);
                   }
-                  setView('room'); 
+                  setView('room');
                 }}>
                   立即返回戰場 (無需密碼)
                 </button>
@@ -2389,13 +2391,13 @@ function App() {
                       <div className="room-status"><span className="status-pulse-green">●</span> 熱烈打王中...</div>
                       <div className="room-action">
                         {lastJoinedRoomId === room.id ? (
-                          <button className="join-room-btn-v11 active-session" onClick={() => { 
-                            setCurrentRoomId(room.id); 
+                          <button className="join-room-btn-v11 active-session" onClick={() => {
+                            setCurrentRoomId(room.id);
                             const myData = room.members?.[userName];
                             if (myData && myData.joinedAt) {
                               setSessionStartTime(myData.joinedAt);
                             }
-                            setView('room'); 
+                            setView('room');
                           }}>
                             返回房間
                           </button>
@@ -2440,20 +2442,20 @@ function App() {
             <div className="modal">
               <h2>加入房間 {currentRoomId}</h2>
               <p>Boss: {BOSSES[room.bossId]?.name}</p>
-              
+
               <div className="v9-readonly-input" style={{ marginBottom: '15px' }}>
                 <span className="label">登場身分 :</span>
                 <span className="value">{userName}</span>
               </div>
 
-              <input 
-                type="password" 
-                value={passwordInput} 
-                onChange={(e) => setPasswordInput(e.target.value)} 
-                placeholder="請輸入房間密碼" 
+              <input
+                type="password"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                placeholder="請輸入房間密碼"
                 autoFocus
               />
-              
+
               <div className="modal-btns">
                 <button onClick={joinRoom}>上車</button>
                 <button onClick={() => { setView('lobby'); setCurrentRoomId(null); }} className="cancel-btn">回大廳</button>
@@ -2521,7 +2523,7 @@ function App() {
               {/* Box 3: Boss Information */}
               <div className="hud-card">
                 <span className="hud-label">BOSS 資訊</span>
-                <div style={{fontSize:'0.85rem', lineHeight:'1.8', color:'#ccc'}}>
+                <div style={{ fontSize: '0.85rem', lineHeight: '1.8', color: '#ccc' }}>
                   <div>{currentBoss.name}</div>
                   <div>重生時間: {currentBoss.time} 分鐘</div>
                   <div>地區: 開發者地圖</div>
@@ -2531,10 +2533,10 @@ function App() {
               {/* Box 4: Kill Report (Deep Analysis) */}
               <div className="hud-card">
                 <span className="hud-label">📊 擊殺報告 (TODAY)</span>
-                
+
                 <div className="stats-section-v9">
                   <span className="stats-sub-label">房內總累計 (OVERALL)</span>
-                  <div className="stats-row">房號 / BOSS: <span style={{fontSize:'0.75rem'}}>{currentRoomId} - {currentBoss.name}</span></div>
+                  <div className="stats-row">房號 / BOSS: <span style={{ fontSize: '0.75rem' }}>{currentRoomId} - {currentBoss.name}</span></div>
                   <div className="stats-row">總擊殺次數: <b>{currentRoom.totalKills || 0} 次</b></div>
                   <div className="stats-row">總共航程: <span>{formatTime(now - currentRoom.createdAt)}</span></div>
                 </div>
@@ -2548,8 +2550,8 @@ function App() {
                   </div>
                 </div>
 
-                <div style={{marginTop:'20px', display:'flex', flexDirection:'column', gap:'10px'}}>
-                  <button className="v9-btn bg-yellow" style={{width:'100%'}} onClick={exportReport}>🖼️ 匯出擊殺戰報 (PNG)</button>
+                <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <button className="v9-btn bg-yellow" style={{ width: '100%' }} onClick={exportReport}>🖼️ 匯出擊殺戰報 (PNG)</button>
                 </div>
               </div>
             </aside>
@@ -2588,13 +2590,13 @@ function App() {
                 {/* --- Report Header (Rendered for PNG Capture only) --- */}
                 <div className="png-report-header">
                   <div className="report-header-top">
-                     <div className="report-title">
-                        <div className="report-brand">PIKAPI 戰術情報網</div>
-                        <div className="report-sub">最終行動結算戰報</div>
-                     </div>
-                     <div className="report-stamp">【 絕密檔案 】</div>
+                    <div className="report-title">
+                      <div className="report-brand">PIKAPI 戰術情報網</div>
+                      <div className="report-sub">最終行動結算戰報</div>
+                    </div>
+                    <div className="report-stamp">【 絕密檔案 】</div>
                   </div>
-                  
+
                   <div className="report-meta-grid">
                     <div className="meta-item">
                       <span className="meta-label">戰區房號</span>
@@ -2626,7 +2628,7 @@ function App() {
                     <div className="r-stat">
                       <label>全車擊殺效率</label>
                       <span>
-                        {((currentRoom.totalKills || 0) / Math.max(0.01, (now - currentRoom.createdAt) / 3600000)).toFixed(1)} <span style={{fontSize:'0.8rem', color:'#888'}}>隻/時</span>
+                        {((currentRoom.totalKills || 0) / Math.max(0.01, (now - currentRoom.createdAt) / 3600000)).toFixed(1)} <span style={{ fontSize: '0.8rem', color: '#888' }}>隻/時</span>
                       </span>
                     </div>
                   </div>
@@ -2657,10 +2659,10 @@ function App() {
                 )}
 
                 <div className="kill-input-v25">
-                  <input 
-                    type="text" 
-                    className="v25-input" 
-                    placeholder="輸入頻道 (例: 5)" 
+                  <input
+                    type="text"
+                    className="v25-input"
+                    placeholder="輸入頻道 (例: 5)"
                     value={inputChannel}
                     onChange={e => setInputChannel(e.target.value)}
                     onKeyPress={e => e.key === 'Enter' && addRecord()}
@@ -2668,72 +2670,72 @@ function App() {
                   <button className="btn-v9-report" onClick={() => addRecord()}>已擊殺開始計時</button>
                 </div>
 
-                  <div className="v25-table">
-                    <div id="kill-report-card" className="v25-table-container">
-                      <div className="v25-table-header">
-                        <span>頻道</span>
-                        <span>野王名稱</span>
-                        <span>倒數計時</span>
-                        <span>目前狀態</span>
-                        <span>回報者</span>
-                        <span style={{textAlign:'right'}}>頻道操作</span>
-                      </div>
+                <div className="v25-table">
+                  <div id="kill-report-card" className="v25-table-container">
+                    <div className="v25-table-header">
+                      <span>頻道</span>
+                      <span>野王名稱</span>
+                      <span>倒數計時</span>
+                      <span>目前狀態</span>
+                      <span>回報者</span>
+                      <span style={{ textAlign: 'right' }}>頻道操作</span>
+                    </div>
 
-                      {Object.keys(records).length === 0 ? (
-                        <div style={{textAlign:'center', padding:'80px', color:'#444', fontStyle:'italic'}}>等待車員回報戰況...</div>
-                      ) : (
-                        Object.keys(records).sort((a,b) => records[a].lastKill - records[b].lastKill).map(ch => {
-                          const remaining = currentBoss.time - (now - records[ch].lastKill) / 60000;
-                          const isReady = remaining <= 0;
-                          const occupant = records[ch].occupant || '';
-                          
-                          return (
-                            <div key={ch} className={`v25-row ${isReady ? 'is-ready' : ''}`}>
-                              {/* 1. 頻道與佔位 */}
-                              <div className="v4-ch-group-v9">
-                                <span className="v5-ch-id">CH {ch.replace('CH','').trim()}</span>
-                                <div className="v9-occupant-container">
-                                  {occupant && <span className="v9-occupant-tag-v9">📍 {occupant}</span>}
-                                </div>
-                              </div>
+                    {Object.keys(records).length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '80px', color: '#444', fontStyle: 'italic' }}>等待車員回報戰況...</div>
+                    ) : (
+                      Object.keys(records).sort((a, b) => records[a].lastKill - records[b].lastKill).map(ch => {
+                        const remaining = currentBoss.time - (now - records[ch].lastKill) / 60000;
+                        const isReady = remaining <= 0;
+                        const occupant = records[ch].occupant || '';
 
-                              {/* 2. 野王名稱 */}
-                              <div className="v5-boss-name">{currentBoss.name}</div>
-
-                              {/* 3. 倒數計時 */}
-                              <div className={`v5-timer ${isReady ? 'ready' : ''}`}>
-                                {isReady ? 'READY' : formatTime(remaining * 60000)}
-                              </div>
-
-                              {/* 4. 目前狀態 */}
-                              <div>
-                                <span className={`v5-status-badge ${isReady ? 'v5-status-ready' : 'v5-status-waiting'}`}>
-                                  {isReady ? '已重生' : '重生中'}
-                                </span>
-                              </div>
-
-                              {/* 5. 回報者 */}
-                              <div className="v9-reporter-chip">
-                                👤 {records[ch].reporter}
-                              </div>
-
-                              {/* 6. 頻道操作 */}
-                              <div className="v5-btn-set">
-                                <button className="v9-btn bg-purple" onClick={() => handleStationed(ch)}>已佔位</button>
-                                {!isReady ? (
-                                  <button className="v9-btn bg-yellow" onClick={() => handleRespawned(ch)}>已重生</button>
-                                ) : (
-                                  <button className="v9-btn bg-pink" onClick={() => addRecord(ch)}>已擊殺</button>
-                                )}
-                                <button className="v9-btn bg-blue" onClick={() => broadcastStatus(ch)}>🔊 廣播</button>
-                                <button className="v9-btn bg-red" onClick={() => removeRecord(ch)}>刪除</button>
+                        return (
+                          <div key={ch} className={`v25-row ${isReady ? 'is-ready' : ''}`}>
+                            {/* 1. 頻道與佔位 */}
+                            <div className="v4-ch-group-v9">
+                              <span className="v5-ch-id">CH {ch.replace('CH', '').trim()}</span>
+                              <div className="v9-occupant-container">
+                                {occupant && <span className="v9-occupant-tag-v9">📍 {occupant}</span>}
                               </div>
                             </div>
-                          );
-                        })
-                      )}
-                    </div>
+
+                            {/* 2. 野王名稱 */}
+                            <div className="v5-boss-name">{currentBoss.name}</div>
+
+                            {/* 3. 倒數計時 */}
+                            <div className={`v5-timer ${isReady ? 'ready' : ''}`}>
+                              {isReady ? 'READY' : formatTime(remaining * 60000)}
+                            </div>
+
+                            {/* 4. 目前狀態 */}
+                            <div>
+                              <span className={`v5-status-badge ${isReady ? 'v5-status-ready' : 'v5-status-waiting'}`}>
+                                {isReady ? '已重生' : '重生中'}
+                              </span>
+                            </div>
+
+                            {/* 5. 回報者 */}
+                            <div className="v9-reporter-chip">
+                              👤 {records[ch].reporter}
+                            </div>
+
+                            {/* 6. 頻道操作 */}
+                            <div className="v5-btn-set">
+                              <button className="v9-btn bg-purple" onClick={() => handleStationed(ch)}>已佔位</button>
+                              {!isReady ? (
+                                <button className="v9-btn bg-yellow" onClick={() => handleRespawned(ch)}>已重生</button>
+                              ) : (
+                                <button className="v9-btn bg-pink" onClick={() => addRecord(ch)}>已擊殺</button>
+                              )}
+                              <button className="v9-btn bg-blue" onClick={() => broadcastStatus(ch)}>🔊 廣播</button>
+                              <button className="v9-btn bg-red" onClick={() => removeRecord(ch)}>刪除</button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
+                </div>
               </div>
             </main>
           </div>
@@ -2761,42 +2763,42 @@ function App() {
         <div className="header-logo" onClick={() => (currentUser ? setView('lobby') : setView('landing'))}>
           <span>PiKaPi</span> <span className="boss-highlight">BOSS</span> Tracker
         </div>
-          {!currentUser ? (
-            <div className="header-actions">
-              <button className="login-btn-small" onClick={handleLogin}>
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" style={{ width: '18px', marginRight: '8px', verticalAlign: 'middle' }} />
-                <span>Google 登入</span>
-              </button>
-            </div>
-          ) : (
-            <div className="user-profile-menu header-actions">
-              <button 
-                className={`leaderboard-hall-btn ${view === 'leaderboard' ? 'active' : ''}`} 
-                onClick={() => setView('leaderboard')}
+        {!currentUser ? (
+          <div className="header-actions">
+            <button className="login-btn-small" onClick={handleLogin}>
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" style={{ width: '18px', marginRight: '8px', verticalAlign: 'middle' }} />
+              <span>Google 登入</span>
+            </button>
+          </div>
+        ) : (
+          <div className="user-profile-menu header-actions">
+            <button
+              className={`leaderboard-hall-btn ${view === 'leaderboard' ? 'active' : ''}`}
+              onClick={() => setView('leaderboard')}
+            >
+              🏆 榮譽榜
+            </button>
+            <button
+              className={`medal-hall-btn ${view === 'medals' ? 'active' : ''}`}
+              onClick={() => setView('medals')}
+            >
+              🎖️ 勳章總覽
+            </button>
+            {isAdmin && (
+              <button
+                className={`admin-entry-btn ${view === 'admin' ? 'active' : ''}`}
+                onClick={() => setView('admin')}
               >
-                🏆 榮譽榜
+                🛡️ 指揮部
               </button>
-              <button 
-                className={`medal-hall-btn ${view === 'medals' ? 'active' : ''}`} 
-                onClick={() => setView('medals')}
-              >
-                🎖️ 勳章總覽
-              </button>
-              {isAdmin && (
-                <button 
-                  className={`admin-entry-btn ${view === 'admin' ? 'active' : ''}`} 
-                  onClick={() => setView('admin')}
-                >
-                  🛡️ 指揮部
-                </button>
-              )}
-              <span className="user-greeting">Hi, {userName}</span>
-              <div className="header-avatar-v9" onClick={() => setView('profile')}>
-                {renderAvatar(currentUser.photoURL, "header-avatar-img", { width: '100%', height: '100%' })}
-              </div>
-              <button className="btn-danger logout-btn" onClick={handleLogout}>登出</button>
+            )}
+            <span className="user-greeting">Hi, {userName}</span>
+            <div className="header-avatar-v9" onClick={() => setView('profile')}>
+              {renderAvatar(currentUser.photoURL, "header-avatar-img", { width: '100%', height: '100%' })}
             </div>
-          )}
+            <button className="btn-danger logout-btn" onClick={handleLogout}>登出</button>
+          </div>
+        )}
       </header>
       <main className="main-content-area">{renderContent()}</main>
       {showAvatarModal && (
@@ -2809,8 +2811,8 @@ function App() {
 
             <div className="emoji-selection-grid">
               {DEFAULT_ANIMALS.map(emoji => (
-                <div 
-                  key={emoji} 
+                <div
+                  key={emoji}
                   className={`emoji-option ${selectedEmoji === emoji ? 'active' : ''}`}
                   onClick={() => setSelectedEmoji(emoji)}
                 >
@@ -2822,7 +2824,7 @@ function App() {
             <div className="v9-modal-divider"></div>
 
             <div className="modal-btns">
-              <button 
+              <button
                 className="v9-btn-confirm"
                 onClick={() => {
                   if (selectedEmoji) {
@@ -2866,8 +2868,8 @@ function App() {
                     {Object.values(roomSummaries || {})
                       .filter(r => r.bossId === currentRoom.bossId && r.id !== currentRoomId)
                       .map(r => (
-                        <div 
-                          key={r.id} 
+                        <div
+                          key={r.id}
                           className={`love-room-item v30-card ${selectedTargetRoomId === r.id ? 'active' : ''}`}
                           onClick={() => setSelectedTargetRoomId(r.id)}
                         >
@@ -2876,10 +2878,10 @@ function App() {
                             <div className="r-conductor">房主: {r.conductor}</div>
                           </div>
                           <div className="r-members-list">
-                             <div className="m-label">當前成員 ({Object.keys(r.members || {}).length}/4):</div>
-                             <div className="m-names">
-                                {(r.memberNames || []).join(', ') || '載入中...'}
-                             </div>
+                            <div className="m-label">當前成員 ({Object.keys(r.members || {}).length}/4):</div>
+                            <div className="m-names">
+                              {(r.memberNames || []).join(', ') || '載入中...'}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -2891,7 +2893,7 @@ function App() {
                     )}
                   </div>
                   <div className="v30-footer-btns">
-                    <button 
+                    <button
                       className={`v30-btn-primary pink ${(!selectedTargetRoomId) ? 'disabled' : ''}`}
                       disabled={!selectedTargetRoomId}
                       onClick={() => setLoveStep(2)}
@@ -2929,9 +2931,9 @@ function App() {
                       <p>偶素誰 [2, 4, 6...]</p>
                     </div>
                   </div>
-                  
+
                   <div className="v30-footer-btns">
-                    <button 
+                    <button
                       className="v30-btn-primary pink"
                       onClick={() => setLoveStep(2.5)}
                     >
@@ -2946,43 +2948,43 @@ function App() {
                 <div className="love-step-content">
                   <p className="v30-section-label">CONFIRM CHANNELS // 待傳送清單預覽</p>
                   <div className="love-channel-preview v9-scrollbar">
-                     {(() => {
-                        const records = currentRoom.records || {};
-                        const previewList = Object.entries(records).filter(([ch]) => {
-                           if (loveTransferMode === 'all') return true;
-                           const num = parseInt(ch.replace(/[^0-9]/g, ''));
-                           if (loveTransferMode === 'odd') return num % 2 !== 0;
-                           if (loveTransferMode === 'even') return num % 2 === 0;
-                           return false;
-                        });
-                        
-                        if (previewList.length === 0) return <div className="no-p-msg">無符合選取條件的頻道資料</div>;
+                    {(() => {
+                      const records = currentRoom.records || {};
+                      const previewList = Object.entries(records).filter(([ch]) => {
+                        if (loveTransferMode === 'all') return true;
+                        const num = parseInt(ch.replace(/[^0-9]/g, ''));
+                        if (loveTransferMode === 'odd') return num % 2 !== 0;
+                        if (loveTransferMode === 'even') return num % 2 === 0;
+                        return false;
+                      });
 
-                        return previewList.map(([ch, data]) => {
-                           const remaining = currentBoss.time - (now - data.lastKill) / 60000;
-                           const isReady = remaining <= 0;
-                           return (
-                              <div key={ch} className="p-ch-item">
-                                 <span className="p-ch-id">{ch}</span>
-                                 <span className="p-ch-status">{isReady ? '✅ 已登場' : `⏳ ${formatTime(remaining * 60000)}`}</span>
-                              </div>
-                           );
-                        });
-                     })()}
+                      if (previewList.length === 0) return <div className="no-p-msg">無符合選取條件的頻道資料</div>;
+
+                      return previewList.map(([ch, data]) => {
+                        const remaining = currentBoss.time - (now - data.lastKill) / 60000;
+                        const isReady = remaining <= 0;
+                        return (
+                          <div key={ch} className="p-ch-item">
+                            <span className="p-ch-id">{ch}</span>
+                            <span className="p-ch-status">{isReady ? '✅ 已登場' : `⏳ ${formatTime(remaining * 60000)}`}</span>
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                   <div className="v30-footer-btns">
-                    <button 
+                    <button
                       className="v30-btn-primary pink"
                       onClick={() => {
                         const records = currentRoom.records || {};
                         const count = Object.entries(records).filter(([ch]) => {
-                           if (loveTransferMode === 'all') return true;
-                           const num = parseInt(ch.replace(/[^0-9]/g, ''));
-                           if (loveTransferMode === 'odd') return num % 2 !== 0;
-                           if (loveTransferMode === 'even') return num % 2 === 0;
-                           return false;
+                          if (loveTransferMode === 'all') return true;
+                          const num = parseInt(ch.replace(/[^0-9]/g, ''));
+                          if (loveTransferMode === 'odd') return num % 2 !== 0;
+                          if (loveTransferMode === 'even') return num % 2 === 0;
+                          return false;
                         }).length;
-                        
+
                         if (count === 0) return alert("無資料可發送，請重新選擇。");
 
                         if (loveTransferMode === 'all') setLoveStep(3);
@@ -3019,13 +3021,13 @@ function App() {
         <div className="modal-overlay">
           <div className="v30-hud-console incoming-love" onClick={e => e.stopPropagation()}>
             <div className="v30-love-header pulse">
-               <div className="heart-icon">💖</div>
-               <h2>收到一份戰區大愛！</h2>
+              <div className="heart-icon">💖</div>
+              <h2>收到一份戰區大愛！</h2>
             </div>
-            
+
             <div className="v30-console-body centered">
               <p className="v30-from-info">來自房主 <span className="text-pink">{incomingLoveRequest.fromConductor}</span> 的愛心連結</p>
-              
+
               <div className="v30-preview-panel">
                 <div className="prev-row">
                   <span className="l">傳送模式 // MODE</span>
@@ -3052,7 +3054,7 @@ function App() {
               <h2 className="text-gold">【下車前資訊提醒】</h2>
               <p>請確認是否記錄好相關資訊：</p>
             </div>
-            
+
             <div className="v9-info-cards">
               <div className="v9-info-card">
                 <label>您的名稱：</label>
@@ -3108,8 +3110,8 @@ function App() {
                   <span className="dot"></span> 語音引擎選擇 (ENGINE SELECT)
                 </div>
                 <div className="v30-select-container">
-                  <select 
-                    value={voiceSettings.voiceURI} 
+                  <select
+                    value={voiceSettings.voiceURI}
                     onChange={e => setVoiceSettings(prev => ({ ...prev, voiceURI: e.target.value }))}
                   >
                     <option value="">DEFAULT SYSTEM VOICE</option>
@@ -3128,11 +3130,11 @@ function App() {
                     <span className="dot"></span> 語音速率 (RATE: {voiceSettings.rate}x)
                   </div>
                   <div className="v30-range-wrapper">
-                    <input 
-                      type="range" min="0.5" max="2" step="0.1" 
+                    <input
+                      type="range" min="0.5" max="2" step="0.1"
                       className="v30-range-input"
-                      value={voiceSettings.rate} 
-                      onChange={e => setVoiceSettings(prev => ({ ...prev, rate: parseFloat(e.target.value) }))} 
+                      value={voiceSettings.rate}
+                      onChange={e => setVoiceSettings(prev => ({ ...prev, rate: parseFloat(e.target.value) }))}
                     />
                     <div className="v30-range-track-bg"></div>
                   </div>
@@ -3143,11 +3145,11 @@ function App() {
                     <span className="dot"></span> 音調頻率 (PITCH: {voiceSettings.pitch}x)
                   </div>
                   <div className="v30-range-wrapper">
-                    <input 
-                      type="range" min="0.5" max="2" step="0.1" 
+                    <input
+                      type="range" min="0.5" max="2" step="0.1"
                       className="v30-range-input"
-                      value={voiceSettings.pitch} 
-                      onChange={e => setVoiceSettings(prev => ({ ...prev, pitch: parseFloat(e.target.value) }))} 
+                      value={voiceSettings.pitch}
+                      onChange={e => setVoiceSettings(prev => ({ ...prev, pitch: parseFloat(e.target.value) }))}
                     />
                     <div className="v30-range-track-bg"></div>
                   </div>
@@ -3170,7 +3172,7 @@ function App() {
                 </div>
               </div>
             </div>
-            
+
             {/* Decoration Elements */}
             <div className="v30-decorator-tl"></div>
             <div className="v30-decorator-br"></div>
