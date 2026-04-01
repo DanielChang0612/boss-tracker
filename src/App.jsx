@@ -137,7 +137,6 @@ function App() {
   const [inputChannel, setInputChannel] = useState('');
   const [now, setNow] = useState(Date.now());
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
-  const [showInheritanceModal, setShowInheritanceModal] = useState(false);
   const [availableVoices, setAvailableVoices] = useState([]);
   const [voiceSettings, setVoiceSettings] = useState(() => {
     const saved = localStorage.getItem('pikapi_voice_settings');
@@ -168,6 +167,13 @@ function App() {
   const [lastSummariesUpdate, setLastSummariesUpdate] = useState(null); // 上次刷新時間
   const [isTabActive, setIsTabActive] = useState(true); // 頁面是否在前景 (v3.3)
   const [selectedMedal, setSelectedMedal] = useState(null); // 當前點選查看的勳章 (v4.4)
+  
+  // --- 把愛傳下去相關狀態 (v13.0) ---
+  const [showLoveModal, setShowLoveModal] = useState(false);
+  const [loveStep, setLoveStep] = useState(1); // 1: 選擇房間, 2: 選擇頻道, 3: 毀滅確認
+  const [selectedTargetRoomId, setSelectedTargetRoomId] = useState(null);
+  const [loveTransferMode, setLoveTransferMode] = useState('all'); // 'all' | 'odd' | 'even'
+  const [incomingLoveRequest, setIncomingLoveRequest] = useState(null); // 當前房內收到的愛
 
   // --- 排行榜相關狀態 (v5.0 超輕量版) ---
   const [leaderboardMetric, setLeaderboardMetric] = useState('kills'); // 'kills' | 'hours'
@@ -277,10 +283,14 @@ function App() {
         const existing = prev[currentRoomId] || {};
         const newRoomData = { ...existing, members: mData };
         
-        // 車長負責同步大廳人數 (僅在成員變動時觸發)
+        // 車長負責同步大廳人數與成員名單 (僅在成員變動時觸發)
         if (newRoomData.conductor === userName) {
           const mCount = Object.keys(mData).length;
-          update(ref(db, `roomSummaries/${currentRoomId}`), { onlineCount: mCount });
+          const names = Object.keys(mData); // 以名稱為 Key 的結構
+          update(ref(db, `roomSummaries/${currentRoomId}`), { 
+            onlineCount: mCount,
+            memberNames: names
+          });
         }
         
         return { ...prev, [currentRoomId]: newRoomData };
@@ -307,10 +317,17 @@ function App() {
       });
     });
 
+    // d. 監聽跨房請求 (把愛傳下去 v13.0)
+    const loveRequestRef = ref(db, `rooms/${currentRoomId}/loveRequest`);
+    const unsubLove = onValue(loveRequestRef, (snap) => {
+      setIncomingLoveRequest(snap.val());
+    });
+
     return () => {
       unsubRecords();
       unsubMembers();
       unsubMeta();
+      unsubLove();
     };
   }, [currentRoomId, view, isTabActive, userName]);
 
@@ -792,10 +809,31 @@ function App() {
     alert("頭像更換成功！戰備狀態已同步至當前頻道。");
   };
 
+  // --- 定時器與初始化輔助 (v13.5) ---
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // 斷線/刷新後，自動從資料庫恢復隨車計時 (Stick Session Restore)
+  useEffect(() => {
+    if (currentRoom && userName && view === 'room') {
+      const myData = currentRoom.members?.[userName];
+      if (myData) {
+        // 恢復計時起點
+        if (!sessionStartTime && myData.joinedAt) {
+          setSessionStartTime(myData.joinedAt);
+        }
+        // 恢復本次獲取量
+        const total = currentRoom.totalKills || 0;
+        const start = myData.startKills || 0;
+        const currentGained = Math.max(0, total - start);
+        if (sessionKills < currentGained) {
+          setSessionKills(currentGained);
+        }
+      }
+    }
+  }, [currentRoom, userName, view, sessionStartTime, sessionKills]);
 
   const lastAlertTs = useRef(Date.now());
   // 已移至 2.1 語音專用監聽器，此處移除以節省流量 (v3.5)
@@ -969,7 +1007,8 @@ function App() {
       conductor,
       totalKills: 0,
       createdAt: Date.now(),
-      onlineCount: 1
+      onlineCount: 1,
+      memberNames: [conductor]
     };
 
     update(ref(db), {
@@ -1171,38 +1210,104 @@ function App() {
     });
   };
 
-  const sendInheritanceRequest = (targetId) => {
-    set(ref(db, `rooms/${targetId}/inheritanceRequest`), {
-      fromRoomId: currentRoomId,
-      fromConductor: userName,
-      at: Date.now(),
-      status: 'pending'
-    });
-    setShowInheritanceModal(false);
-    alert("❤️ 愛的小禮物已發送！");
+  // --- 把愛傳下去核心引擎 (v13.0) ---
+  const handleSpreadLoveClick = () => {
+    setSelectedTargetRoomId(null);
+    setLoveStep(1);
+    setShowLoveModal(true);
   };
 
-  const handleInheritanceResponse = (accept) => {
-    if (accept) {
-      const fromRoom = rooms[currentRoom.inheritanceRequest.fromRoomId];
-      if (!fromRoom) return alert("對方的愛消失了...");
-      const myRecords = currentRoom.records || {};
-      const fromRecords = fromRoom.records || {};
-      const mergedRecords = { ...myRecords };
-      Object.keys(fromRecords).forEach(ch => {
-        if (!mergedRecords[ch] || fromRecords[ch].lastKill > mergedRecords[ch].lastKill) {
-          mergedRecords[ch] = fromRecords[ch];
-        }
-      });
-      update(ref(db, `rooms/${currentRoomId}`), { records: mergedRecords, inheritanceRequest: null });
-      update(ref(db), {
-        [`rooms/${fromRoom.id}`]: null,
-        [`roomSummaries/${fromRoom.id}`]: null
-      });
+  const sendLoveRequest = async () => {
+    if (!selectedTargetRoomId || !currentRoom) return;
+    
+    const targetRoomSummary = roomSummaries[selectedTargetRoomId];
+    const targetConductor = targetRoomSummary?.conductor || '另一房的房主';
+    
+    const records = currentRoom.records || {};
+    let channelsToMove = {};
+    
+    // (變更) 改進：判斷與篩選邏輯，確保字串 ID 也能正確判斷奇偶
+    if (loveTransferMode === 'all') {
+      channelsToMove = { ...records };
     } else {
-      update(ref(db, `rooms/${currentRoomId}`), { inheritanceRequest: null });
+      Object.entries(records).forEach(([ch, data]) => {
+        // ch 可能是 "1", "2" 等字串
+        const num = parseInt(ch.replace(/[^0-9]/g, ''));
+        if (loveTransferMode === 'odd' && num % 2 !== 0) channelsToMove[ch] = data;
+        if (loveTransferMode === 'even' && num % 2 === 0) channelsToMove[ch] = data;
+      });
     }
+
+    if (Object.keys(channelsToMove).length === 0) {
+      return alert("【系統警告】偵測不到符合條件的頻道紀錄 (或是目標頻道目前無任何狀態)");
+    }
+
+    const request = {
+      fromId: currentRoomId,
+      fromConductor: userName,
+      targetId: selectedTargetRoomId,
+      mode: loveTransferMode,
+      channels: channelsToMove,
+      ts: Date.now()
+    };
+
+    // 1. 發送請求
+    await set(ref(db, `rooms/${selectedTargetRoomId}/loveRequest`), request);
+    
+    // 2. 傳送房全體廣播
+    update(ref(db, `rooms/${currentRoomId}/voiceAlert`), { 
+      message: `房主 ${userName} 已經把愛 給 另一房的房主 ${targetConductor}`, 
+      ts: Date.now(), 
+      sender: userName 
+    });
+    
+    setShowLoveModal(false);
   };
+
+  const refuseLoveRequest = async () => {
+    if (!incomingLoveRequest) return;
+    const { fromId } = incomingLoveRequest;
+    
+    // 1. 廣播給傳送房 (狠狠拒絕)
+    update(ref(db, `rooms/${fromId}/voiceAlert`), { 
+      message: `${userName} 房主 狠狠拒絕了你們的愛`, 
+      ts: Date.now(), 
+      sender: userName 
+    });
+    
+    // 2. 清除請求
+    await remove(ref(db, `rooms/${currentRoomId}/loveRequest`));
+    setIncomingLoveRequest(null);
+  };
+
+  const acceptLoveRequest = async () => {
+    if (!incomingLoveRequest || !currentRoom) return;
+    const { fromId, fromConductor, channels, mode } = incomingLoveRequest;
+    
+    const updates = {};
+    // 1. 搬家頻道資料
+    Object.entries(channels || {}).forEach(([ch, data]) => {
+      updates[`rooms/${currentRoomId}/records/${ch}`] = data;
+      updates[`rooms/${fromId}/records/${ch}`] = null;
+    });
+
+    // 2. 語音連動
+    updates[`rooms/${currentRoomId}/voiceAlert`] = { message: `成功接受來自 ${fromConductor} 房主的愛`, ts: Date.now(), sender: userName };
+    updates[`rooms/${fromId}/voiceAlert`] = { message: `${userName} 房主已經接受你們的愛`, ts: Date.now(), sender: userName };
+    
+    // 3. 處理終結邏輯
+    if (mode === 'all') {
+      // 若全部轉移，銷毀傳送房 (利用 Firebase 結構刪除會自動讓成員彈出)
+      remove(ref(db, `rooms/${fromId}`));
+      remove(ref(db, `roomSummaries/${fromId}`));
+    }
+    
+    // 4. 清除這筆愛
+    updates[`rooms/${currentRoomId}/loveRequest`] = null;
+    await update(ref(db), updates);
+    setIncomingLoveRequest(null);
+  };
+
   const handleRespawned = (ch) => {
     if (!currentRoomId || !currentBoss) return;
     const recordsRef = ref(db, `rooms/${currentRoomId}/records/${ch}`);
@@ -2141,7 +2246,14 @@ function App() {
                     <b>戰區直連：</b>您目前在 <b>{BOSSES[roomSummaries[lastJoinedRoomId]?.bossId]?.name || '未知目標'}</b> 的指揮頻道中
                   </span>
                 </div>
-                <button className="jump-back-btn-v11" onClick={() => { setCurrentRoomId(lastJoinedRoomId); setView('room'); }}>
+                <button className="jump-back-btn-v11" onClick={() => { 
+                  setCurrentRoomId(lastJoinedRoomId); 
+                  const myData = roomSummaries[lastJoinedRoomId]?.members?.[userName];
+                  if (myData && myData.joinedAt) {
+                    setSessionStartTime(myData.joinedAt);
+                  }
+                  setView('room'); 
+                }}>
                   立即返回戰場 (無需密碼)
                 </button>
               </div>
@@ -2162,7 +2274,14 @@ function App() {
                       <div className="room-status"><span className="status-pulse-green">●</span> 熱烈打王中...</div>
                       <div className="room-action">
                         {lastJoinedRoomId === room.id ? (
-                          <button className="join-room-btn-v11 active-session" onClick={() => { setCurrentRoomId(room.id); setView('room'); }}>
+                          <button className="join-room-btn-v11 active-session" onClick={() => { 
+                            setCurrentRoomId(room.id); 
+                            const myData = room.members?.[userName];
+                            if (myData && myData.joinedAt) {
+                              setSessionStartTime(myData.joinedAt);
+                            }
+                            setView('room'); 
+                          }}>
                             返回房間
                           </button>
                         ) : memberCount >= 4 ? (
@@ -2308,15 +2427,14 @@ function App() {
                 <div className="stats-section-v9">
                   <span className="stats-sub-label">您的隨車里程 (YOUR SESSION)</span>
                   <div className="stats-grid-v9">
-                    <div className="stat-box-v9"><b>{formatTime(Date.now() - (sessionStartTime || Date.now()))}</b><span>已隨車</span></div>
-                    <div className="stat-box-v9"><b>{sessionKills} 次</b><span>共獲取</span></div>
+                    <div className="stat-box-v9"><b>{formatTime(now - (sessionStartTime || now))}</b><span>已隨車</span></div>
+                    <div className="stat-box-v9"><b>{Math.max(sessionKills, (currentRoom.totalKills || 0) - (currentRoom.members?.[userName]?.startKills || 0))} 次</b><span>共獲取</span></div>
                     <div className="stat-box-v9"><b>{efficiency}</b><span>時點效率</span></div>
                   </div>
                 </div>
 
                 <div style={{marginTop:'20px', display:'flex', flexDirection:'column', gap:'10px'}}>
                   <button className="v9-btn bg-yellow" style={{width:'100%'}} onClick={exportReport}>🖼️ 匯出擊殺戰報 (PNG)</button>
-                  <button className="v9-btn bg-pink" style={{width:'100%'}} onClick={() => setShowInheritanceModal(true)}>把愛傳下去 (繼承給他房)</button>
                 </div>
               </div>
             </aside>
@@ -2337,6 +2455,7 @@ function App() {
                 </div>
 
                 <div className="v9-control-group">
+                  {isConductor && <button className="btn-v9-pink" onClick={handleSpreadLoveClick}>💖 把愛傳下去</button>}
                   <button className="btn-v9-grey" onClick={() => setShowVoiceSettings(true)}>⚙️ 語音設定</button>
                   <button className="btn-v9-yellow" onClick={() => {
                     const shareUrl = `${window.location.origin}${window.location.pathname}#${currentRoomId}`;
@@ -2363,20 +2482,20 @@ function App() {
                   
                   <div className="report-meta-grid">
                     <div className="meta-item">
-                      <span className="meta-label">戰區作戰代號</span>
+                      <span className="meta-label">戰區房號</span>
                       <span className="meta-value gold-txt">{currentRoomId}</span>
                     </div>
                     <div className="meta-item">
-                      <span className="meta-label">前線戰術車長</span>
-                      <span className="meta-value user-txt">{currentRoom.conductor}</span>
+                      <span className="meta-label">前線車長</span>
+                      <span className="meta-value user-txt">{currentRoom.conductor || '無'}</span>
                     </div>
                     <div className="meta-item">
-                      <span className="meta-label">主要作戰目標</span>
+                      <span className="meta-label">作戰目標</span>
                       <span className="meta-value boss-txt">{currentBoss.name}</span>
                     </div>
                     <div className="meta-item">
-                      <span className="meta-label">情報截取時間</span>
-                      <span className="meta-value time-txt">{new Date().toLocaleString()}</span>
+                      <span className="meta-label">報告生成時間</span>
+                      <span className="meta-value time-txt">{new Date().toLocaleString('zh-TW', { hour12: false })}</span>
                     </div>
                   </div>
 
@@ -2564,30 +2683,6 @@ function App() {
           )}
       </header>
       <main className="main-content-area">{renderContent()}</main>
-      {showInheritanceModal && (
-        <div className="modal-overlay inheritance-modal" onClick={() => setShowInheritanceModal(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2>❤️ 把愛傳下去</h2>
-            <div className="love-list">
-              {bossRooms.filter(r => r.id !== currentRoomId).map(room => (
-                <button key={room.id} onClick={() => sendInheritanceRequest(room.id)}>傳給房號 {room.id} ({room.conductor})</button>
-              ))}
-            </div>
-            <button className="love-cancel-btn" onClick={() => setShowInheritanceModal(false)}>取消</button>
-          </div>
-        </div>
-      )}
-      {currentRoom?.inheritanceRequest?.status === 'pending' && currentRoom.conductor === userName && (
-        <div className="incoming-love-overlay">
-          <div className="love-popup">
-            <h3>來自房號 {currentRoom.inheritanceRequest.fromRoomId} 的愛</h3>
-            <div className="love-actions">
-              <button className="accept-love" onClick={() => handleInheritanceResponse(true)}>接受 ❤️</button>
-              <button className="decline-love" onClick={() => handleInheritanceResponse(false)}>拒絕 💔</button>
-            </div>
-          </div>
-        </div>
-      )}
       {showAvatarModal && (
         <div className="modal-overlay avatar-modal" onClick={() => setShowAvatarModal(false)}>
           <div className="modal-content glass-panel" onClick={e => e.stopPropagation()}>
@@ -2624,6 +2719,212 @@ function App() {
                 確認更換
               </button>
               <button onClick={() => setShowAvatarModal(false)} className="v9-btn-cancel">取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showLoveModal && (
+        <div className="modal-overlay">
+          <div className="v30-hud-console love-console" onClick={e => e.stopPropagation()}>
+            {/* Header Area */}
+            <div className="v30-console-header">
+              <div className="v30-title-group">
+                <span className="v30-accent-bar pink"></span>
+                <div className="v30-title-text">
+                  <h2 className="text-pink">把愛傳下去</h2>
+                  <p>CROSS-ROOM TACTICAL TRANSFER // 跨房轉移系統</p>
+                </div>
+              </div>
+              <div className="v30-header-actions">
+                <button className="v30-refresh-btn" onClick={fetchRoomSummaries} title="重新獲取實時大廳資訊">🔄</button>
+                <button className="v30-close-btn" onClick={() => setShowLoveModal(false)}>×</button>
+              </div>
+            </div>
+
+            <div className="v30-console-body">
+              {loveStep === 1 && (
+                <div className="love-step-content">
+                  <p className="v30-section-label">SELECT TARGET SECTOR // 選擇接收的大愛房號</p>
+                  <div className="love-room-list v9-scrollbar">
+                    {Object.values(roomSummaries || {})
+                      .filter(r => r.bossId === currentRoom.bossId && r.id !== currentRoomId)
+                      .map(r => (
+                        <div 
+                          key={r.id} 
+                          className={`love-room-item v30-card ${selectedTargetRoomId === r.id ? 'active' : ''}`}
+                          onClick={() => setSelectedTargetRoomId(r.id)}
+                        >
+                          <div className="r-id-row">
+                            <div className="r-id">房號: <span className="text-pink">{r.id}</span></div>
+                            <div className="r-conductor">房主: {r.conductor}</div>
+                          </div>
+                          <div className="r-members-list">
+                             <div className="m-label">當前成員 ({Object.keys(r.members || {}).length}/4):</div>
+                             <div className="m-names">
+                                {(r.memberNames || []).join(', ') || '載入中...'}
+                             </div>
+                          </div>
+                        </div>
+                      ))}
+                    {Object.values(roomSummaries || {}).filter(r => r.bossId === currentRoom.bossId && r.id !== currentRoomId).length === 0 && (
+                      <div className="v30-empty-status">
+                        <div className="icon">📡</div>
+                        <p>OUT OF RANGE // 目前沒有在線的相同 BOSS 房</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="v30-footer-btns">
+                    <button 
+                      className={`v30-btn-primary pink ${(!selectedTargetRoomId) ? 'disabled' : ''}`}
+                      disabled={!selectedTargetRoomId}
+                      onClick={() => setLoveStep(2)}
+                    >
+                      把愛給它
+                    </button>
+                    <button className="v30-btn-secondary" onClick={() => setShowLoveModal(false)}>取消傳送</button>
+                  </div>
+                </div>
+              )}
+
+              {loveStep === 2 && (
+                <div className="love-step-content">
+                  <p className="v30-section-label">TRANSFER SCOPE // 傳送詳情設定</p>
+                  <div className="v30-options-grid">
+                    <div className={`v30-opt-card ${loveTransferMode === 'all' ? 'active' : ''}`} onClick={() => setLoveTransferMode('all')}>
+                      <div className="opt-header">
+                        <span className="opt-title">全部頻道紀錄</span>
+                        <span className="opt-tag">MAX LOAD</span>
+                      </div>
+                      <p>整顆心都給你 [ALL]</p>
+                    </div>
+                    <div className={`v30-opt-card ${loveTransferMode === 'odd' ? 'active' : ''}`} onClick={() => setLoveTransferMode('odd')}>
+                      <div className="opt-header">
+                        <span className="opt-title">僅奇數頻道</span>
+                        <span className="opt-tag">FILTER</span>
+                      </div>
+                      <p>好奇友 [1, 3, 5...]</p>
+                    </div>
+                    <div className={`v30-opt-card ${loveTransferMode === 'even' ? 'active' : ''}`} onClick={() => setLoveTransferMode('even')}>
+                      <div className="opt-header">
+                        <span className="opt-title">僅偶數頻道</span>
+                        <span className="opt-tag">FILTER</span>
+                      </div>
+                      <p>偶素誰 [2, 4, 6...]</p>
+                    </div>
+                  </div>
+                  
+                  <div className="v30-footer-btns">
+                    <button 
+                      className="v30-btn-primary pink"
+                      onClick={() => setLoveStep(2.5)}
+                    >
+                      大愛預覽
+                    </button>
+                    <button className="v30-btn-secondary" onClick={() => setLoveStep(1)}>回上一步</button>
+                  </div>
+                </div>
+              )}
+
+              {loveStep === 2.5 && (
+                <div className="love-step-content">
+                  <p className="v30-section-label">CONFIRM CHANNELS // 待傳送清單預覽</p>
+                  <div className="love-channel-preview v9-scrollbar">
+                     {(() => {
+                        const records = currentRoom.records || {};
+                        const previewList = Object.entries(records).filter(([ch]) => {
+                           if (loveTransferMode === 'all') return true;
+                           const num = parseInt(ch.replace(/[^0-9]/g, ''));
+                           if (loveTransferMode === 'odd') return num % 2 !== 0;
+                           if (loveTransferMode === 'even') return num % 2 === 0;
+                           return false;
+                        });
+                        
+                        if (previewList.length === 0) return <div className="no-p-msg">無符合選取條件的頻道資料</div>;
+
+                        return previewList.map(([ch, data]) => {
+                           const remaining = currentBoss.time - (now - data.lastKill) / 60000;
+                           const isReady = remaining <= 0;
+                           return (
+                              <div key={ch} className="p-ch-item">
+                                 <span className="p-ch-id">{ch}</span>
+                                 <span className="p-ch-status">{isReady ? '✅ 已登場' : `⏳ ${formatTime(remaining * 60000)}`}</span>
+                              </div>
+                           );
+                        });
+                     })()}
+                  </div>
+                  <div className="v30-footer-btns">
+                    <button 
+                      className="v30-btn-primary pink"
+                      onClick={() => {
+                        const records = currentRoom.records || {};
+                        const count = Object.entries(records).filter(([ch]) => {
+                           if (loveTransferMode === 'all') return true;
+                           const num = parseInt(ch.replace(/[^0-9]/g, ''));
+                           if (loveTransferMode === 'odd') return num % 2 !== 0;
+                           if (loveTransferMode === 'even') return num % 2 === 0;
+                           return false;
+                        }).length;
+                        
+                        if (count === 0) return alert("無資料可發送，請重新選擇。");
+
+                        if (loveTransferMode === 'all') setLoveStep(3);
+                        else sendLoveRequest();
+                      }}
+                    >
+                      發送訊號
+                    </button>
+                    <button className="v30-btn-secondary" onClick={() => setLoveStep(2)}>回上一步</button>
+                  </div>
+                </div>
+              )}
+
+              {loveStep === 3 && (
+                <div className="love-step-content warning">
+                  <div className="v30-warn-panel">
+                    <h3>⚠️ 終結警告 ⚠️</h3>
+                    <p>若「全部頻道」成功轉移後，本戰區將自動銷毀。</p>
+                    <p>所有成員將自動跳轉回大廳休息。</p>
+                  </div>
+                  <div className="v30-footer-btns stacked">
+                    <button className="v30-btn-danger" onClick={sendLoveRequest}>沒問題，我願意</button>
+                    <button className="v30-btn-secondary" onClick={() => setLoveStep(2)}>再考慮一下</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 把愛傳下去 - 接收方通知 (v13.0) */}
+      {incomingLoveRequest && (
+        <div className="modal-overlay">
+          <div className="v30-hud-console incoming-love" onClick={e => e.stopPropagation()}>
+            <div className="v30-love-header pulse">
+               <div className="heart-icon">💖</div>
+               <h2>收到一份戰區大愛！</h2>
+            </div>
+            
+            <div className="v30-console-body centered">
+              <p className="v30-from-info">來自房主 <span className="text-pink">{incomingLoveRequest.fromConductor}</span> 的愛心連結</p>
+              
+              <div className="v30-preview-panel">
+                <div className="prev-row">
+                  <span className="l">傳送模式 // MODE</span>
+                  <span className="v text-pink">{incomingLoveRequest.mode === 'all' ? '全部頻道紀錄' : incomingLoveRequest.mode === 'odd' ? '僅奇數頻道' : '僅偶數頻道'}</span>
+                </div>
+                <div className="prev-row">
+                  <span className="l">頻道負載 // LOAD</span>
+                  <span className="v">{Object.keys(incomingLoveRequest.channels || {}).length} 個頻道</span>
+                </div>
+              </div>
+
+              <div className="v30-footer-btns">
+                <button className="v30-btn-primary pink-pulse" onClick={acceptLoveRequest}>接受愛愛❤️</button>
+                <button className="v30-btn-danger" onClick={refuseLoveRequest}>狠狠拒絕💔</button>
+              </div>
             </div>
           </div>
         </div>
