@@ -141,8 +141,13 @@ function App() {
   const [availableVoices, setAvailableVoices] = useState([]);
   const [voiceSettings, setVoiceSettings] = useState(() => {
     const saved = localStorage.getItem('pikapi_voice_settings');
-    return saved ? JSON.parse(saved) : { voiceURI: '', rate: 1, pitch: 1 };
+    // 預設優選配置 (v15.8): 語速稍微加快一點點比較好聽
+    return saved ? JSON.parse(saved) : { voiceURI: '', rate: 1.1, pitch: 1 };
   });
+
+  // V16.0: 戰術性多會話鎖定機制 (Session Lock)
+  const currentSessionId = useRef(Math.random().toString(36).slice(2)).current;
+  const [isKickedByOtherDevice, setIsKickedByOtherDevice] = useState(false);
 
   const [presenceData, setPresenceData] = useState({});
   const [allUsers, setAllUsers] = useState({});
@@ -186,6 +191,35 @@ function App() {
   const [leaderboardData, setLeaderboardData] = useState([]);
   const [availableRankMonths, setAvailableRankMonths] = useState([]);
   const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(false);
+  const lastAlertTs = useRef(Date.now()); // V15.8: 語音警報過濾器
+  const isAdmin = currentUser?.uid === ADMIN_UID || currentUser?.uid === PIKA_UID;
+
+  // --- V16.1: 戰術會話全時管控系統 (24h 無死角偵測) ---
+  useEffect(() => {
+    if (!currentUser) return;
+    const sessionRef = ref(db, `presence/${currentUser.uid}/activeSession`);
+
+    // 1. 全時監聽 (無論在前台或背景，只要偵測到新連線，立即斷開本分頁同步行為)
+    const unsubSession = onValue(sessionRef, (snap) => {
+      const dbSessId = snap.val();
+      if (dbSessId && dbSessId !== currentSessionId) {
+        setIsKickedByOtherDevice(true);
+        window.speechSynthesis.cancel();
+      }
+    });
+
+    // 2. 獲取主權：當切換至本分頁時，奪取 activeSession 全域標記
+    if (isTabActive && !isKickedByOtherDevice) {
+      update(ref(db, `presence/${currentUser.uid}`), {
+        activeSession: currentSessionId,
+        isOnline: true,
+        lastSeen: Date.now()
+      });
+    }
+
+    return () => unsubSession();
+  }, [currentUser, isTabActive, isKickedByOtherDevice]);
+
   const fetchRoomSummaries = async () => {
     setIsSummariesLoading(true);
     try {
@@ -238,8 +272,6 @@ function App() {
 
   const userHasSeenSelfInRoom = useRef(false);
   const lastPresenceUpdateTs = useRef(0); // 頻率限制 (v3.2)
-  const isAdmin = currentUser?.uid === ADMIN_UID || currentUser?.uid === PIKA_UID;
-
   const currentRoom = (currentRoomId && rooms && rooms[currentRoomId]) ? rooms[currentRoomId] : null;
   const currentBoss = (currentRoom && currentRoom.bossId && BOSSES[currentRoom.bossId])
     ? BOSSES[currentRoom.bossId]
@@ -906,7 +938,7 @@ function App() {
     }
   }, [currentRoom, userName, view, sessionStartTime, sessionKills]);
 
-  const lastAlertTs = useRef(Date.now());
+  // 已移至 2.1 語音專用監聽器，此處移除以節省流量 (v3.5)
   // 已移至 2.1 語音專用監聽器，此處移除以節省流量 (v3.5)
 
   const handleTestVoice = () => {
@@ -2081,13 +2113,40 @@ function App() {
 
   const renderContent = () => {
     if (authChecking) return <div className="loading-screen">連線中...</div>;
+
+    // V16.0: 多重會話衝突阻斷
+    if (isKickedByOtherDevice) {
+      return (
+        <div className="modal-overlay session-kick-overlay" style={{background: 'rgba(0,0,0,0.95)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+          <div className="v30-hud-console kicked-alert" style={{maxWidth: '400px', border: '2px solid #ff4444', animation: 'pulse-red 2s infinite'}}>
+             <div className="v30-console-header danger" style={{background: '#ff4444', color: '#fff'}}>
+                <div style={{fontWeight: '900'}}>⚠️ 戰術連線衝突 (SESSION CONFLICT)</div>
+             </div>
+             <div className="v30-console-body centered" style={{padding: '40px 30px', textAlign: 'center'}}>
+                <h3 style={{color: '#ff4444'}}>您的帳號已從另一台設備登入</h3>
+                <p style={{fontSize: '14px', opacity: 0.8, marginTop: '15px'}}>為了優化系統頻寬並維護數據安全性，本分頁已停止所有戰術同步。</p>
+                <div style={{marginTop: '30px', borderTop: '1px solid #333', paddingTop: '20px'}}>
+                   <button 
+                     className="v30-btn-primary" 
+                     onClick={() => window.location.reload()}
+                     style={{background: '#ff4444', width: '100%', padding: '15px', borderRadius: '8px', fontWeight: '900'}}
+                   >
+                     重新獲取連線主權
+                   </button>
+                </div>
+             </div>
+          </div>
+        </div>
+      );
+    }
+
     try {
       if (!currentUser) {
         return (
           <div className="landing-page-container">
             <div className="landing-content glass-panel">
               <h1 className="landing-title neon-text">PIKAPI<br />GUILD TRACKER</h1>
-              <p className="landing-subtitle">專業公會戰役管理・專屬戰報・把愛傳下去 v3.0</p>
+              <p className="landing-subtitle">專業公會戰役管理・專屬戰報・把愛傳下去 V16.1 - REBORN</p>
 
               {!isNativeAuthVisible ? (
                 <div className="auth-options fade-in">
@@ -2166,7 +2225,7 @@ function App() {
                   </span>
                 </div>
               )}
-              <p className="landing-subtitle">請填寫您的遊戲暱稱並向管理員提交申請，<br />審核通過後即可開始紀錄。 v2.1</p>
+              <p className="landing-subtitle">請填寫您的遊戲暱稱並向管理員提交申請，<br />審核通過後即可開始紀錄。 V16.1 - REBORN</p>
               <div style={{ marginTop: '10px', marginBottom: '20px', width: '100%', display: 'flex', justifyContent: 'center' }}>
                 <input
                   type="text"
@@ -2322,7 +2381,7 @@ function App() {
         return (
           <div className="lobby-container">
             <header className="lobby-header">
-              <div className="version-tag">Build v2.1 - V10.5 TACTICAL</div>
+              <div className="version-tag">Build v16.1 - REBORN TACTICAL</div>
               <h1>PiKaPi 公會和諧打王趣</h1>
               <p>專業野王紀錄管理系統</p>
             </header>
