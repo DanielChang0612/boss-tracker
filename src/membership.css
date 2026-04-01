@@ -2500,6 +2500,15 @@ body {
   50% { box-shadow: 0 0 25px rgba(246, 207, 87, 0.6); }
 }
 
+.join-room-btn-v11.room-is-full {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: rgba(255, 255, 255, 0.2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
 .medal-card {
   padding: 25px 15px;
   border-radius: 20px;

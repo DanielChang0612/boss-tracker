@@ -158,6 +158,7 @@ function App() {
   const [sessionKills, setSessionKills] = useState(0); // 本次隨車累計擊殺 (v1.6.2)
   const [globalBroadcast, setGlobalBroadcast] = useState(null); // 全域公告節點
   const [broadcastInput, setBroadcastInput] = useState(''); // 管理員廣播輸入框
+  const [lastJoinedRoomId, setLastJoinedRoomId] = useState(localStorage.getItem('pikapi_last_room') || null); // 真正進入過的房間 (v12.5)
   const [adminMenu, setAdminMenu] = useState(null); // { rid, m }
   const [showAvatarModal, setShowAvatarModal] = useState(false); // 預設頭像彈窗
   const [selectedEmoji, setSelectedEmoji] = useState(null); // 選中的 Emoji
@@ -290,11 +291,20 @@ function App() {
     const unsubMeta = onValue(roomRef, (snap) => {
       const allData = snap.val();
       if (!allData) return;
-      const { records, members, ...meta } = allData;
-      setRooms(prev => ({
-        ...prev,
-        [currentRoomId]: { ...(prev[currentRoomId] || {}), ...meta }
-      }));
+      const { records: _, members: __, ...meta } = allData; // 排除 records 與 members
+      setRooms(prev => {
+        const existing = prev[currentRoomId] || {};
+        return {
+          ...prev,
+          [currentRoomId]: { 
+            ...existing, 
+            ...meta,
+            // 修正：當雲端某些欄位被 null 刪除時，local 必須同步清除 (v12.9)
+            wildBossExplore: meta.wildBossExplore || null,
+            voiceAlert: meta.voiceAlert || null
+          }
+        };
+      });
     });
 
     return () => {
@@ -750,6 +760,8 @@ function App() {
         alert("【系統提醒】您已被請下車，將跳轉回大廳。");
         userHasSeenSelfInRoom.current = false;
         setCurrentRoomId(null);
+        setLastJoinedRoomId(null);
+        localStorage.removeItem('pikapi_last_room');
         setView('lobby');
         window.history.pushState({}, '', window.location.pathname);
       }
@@ -761,13 +773,23 @@ function App() {
   // 已廢除個人圖片上傳 (v2.2)
   const updateProfileAvatar = (newUrl) => {
     if (!currentUser) return;
-    update(ref(db, `users/${currentUser.uid}`), { photoURL: newUrl });
+    
+    const updates = {};
+    updates[`users/${currentUser.uid}/photoURL`] = newUrl;
+    
+    // 如果目前在房間內，同步更新房內成員頭像 (v12.6)
+    if (currentRoomId && userName) {
+      updates[`rooms/${currentRoomId}/members/${userName}/photoURL`] = newUrl;
+    }
+    
+    update(ref(db), updates);
+    
     setCurrentUser(prev => ({
       ...prev,
       photoURL: newUrl,
       profile: { ...prev.profile, photoURL: newUrl }
     }));
-    alert("頭像更換成功！");
+    alert("頭像更換成功！戰備狀態已同步至當前頻道。");
   };
 
   useEffect(() => {
@@ -930,6 +952,7 @@ function App() {
         [userName]: {
           joinedAt: Date.now(),
           startKills: 0,
+          totalKills: currentUser.profile?.totalKills || 0, // 初始帶入總擊殺 (v12.7)
           photoURL: currentUser.profile?.photoURL || '🐶',
           isOnline: true
         } 
@@ -955,6 +978,8 @@ function App() {
       [`users/${currentUser.uid}/rooms/${id}`]: true
     }).then(() => {
       setCurrentRoomId(id);
+      setLastJoinedRoomId(id); // 標記為正式進入 (v12.5)
+      localStorage.setItem('pikapi_last_room', id);
       setView('room');
       setSessionStartTime(Date.now());
       setSessionKills(0);
@@ -967,24 +992,31 @@ function App() {
     if (!snapshot.exists()) return alert("房間已不存在");
     
     const room = snapshot.val();
-    if (!joinNameInput.trim()) return alert("請輸入您的名稱");
+    const membersList = Object.keys(room.members || {});
+    
+    // 如果不是原本就在裡面，且人數已滿 4 人，不給進
+    if (!membersList.includes(userName) && membersList.length >= 4) {
+      return alert("【戰報】該房間員額已滿 (4/4)，請選擇其他房間或自行開車。");
+    }
+
     if (room.password !== passwordInput) return alert("密碼錯誤");
 
-    update(ref(db, `rooms/${currentRoomId}/members`), {
-      [joinNameInput.trim()]: { 
+    await update(ref(db, `rooms/${currentRoomId}/members`), {
+      [userName]: { 
         joinedAt: Date.now(), 
         startKills: room.totalKills || 0,
+        totalKills: currentUser.profile?.totalKills || 0, // 加入時同步階級數據 (v12.7)
         photoURL: currentUser.profile?.photoURL || '🐶', // 同步頭像 (v2.3)
         isOnline: true
       }
     });
     
-    setUserName(joinNameInput.trim());
+    setLastJoinedRoomId(currentRoomId);
+    localStorage.setItem('pikapi_last_room', currentRoomId);
     setView('room');
     setSessionStartTime(Date.now()); // 開始計時
     window.history.pushState({}, '', `#${currentRoomId}`);
     setPasswordInput('');
-    setJoinNameInput('');
   };
 
   const backToLobby = (forceReset = false) => {
@@ -1024,6 +1056,8 @@ function App() {
     setSessionStartTime(null);
     setShowLeaveModal(false);
     setCurrentRoomId(null);
+    setLastJoinedRoomId(null);
+    localStorage.removeItem('pikapi_last_room');
     setView('lobby');
     window.history.pushState({}, '', window.location.pathname);
   };
@@ -1043,15 +1077,23 @@ function App() {
   };
 
   const toggleWildBossExplore = () => {
-    const isActive = currentRoom.wildBossExplore?.[userName];
-    update(ref(db, `rooms/${currentRoomId}/wildBossExplore`), {
-      [userName]: isActive ? null : true
-    });
-    if (!isActive) {
-      update(ref(db, `rooms/${currentRoomId}`), {
-        voiceAlert: { message: `${userName} 已經去打野了`, ts: Date.now(), sender: userName }
-      });
+    // 確保 currentRoom 存在且具有正確的資料結構 (v12.9)
+    if (!currentRoom || !currentRoomId || !userName) return;
+
+    const isActive = !!(currentRoom.wildBossExplore && currentRoom.wildBossExplore[userName]);
+    const newState = !isActive;
+    
+    const updates = {};
+    // 直接操作節點，確保 null 時能正確刪除對應路徑
+    updates[`rooms/${currentRoomId}/wildBossExplore/${userName}`] = newState ? true : null;
+    
+    // 唯有在「開始打野」時廣播，取消則保持安靜 (v12.9)
+    if (newState) {
+      const msg = `${userName} 前往各頻道打野中`;
+      updates[`rooms/${currentRoomId}/voiceAlert`] = { message: msg, ts: Date.now(), sender: userName };
     }
+    
+    update(ref(db), updates);
   };
 
   const handleStationed = (chKey) => {
@@ -1075,7 +1117,7 @@ function App() {
     update(ref(db), { 
       [`rooms/${currentRoomId}/totalKills`]: (currentRoom.totalKills || 0) + 1,
       [`roomSummaries/${currentRoomId}/totalKills`]: (currentRoom.totalKills || 0) + 1,
-      [`rooms/${currentRoomId}/wildBossExplore`]: null
+      // V12.8: 已與頻道狀態解耦，打野狀態改由手動控制
     });
 
     // 增加個人與 Boss 個別統計
@@ -1093,11 +1135,17 @@ function App() {
         const recent = data.recentActivity || [];
         const updatedRecent = [newActivity, ...recent].slice(0, 5);
         
+        const newTotalKills = (data.totalKills || 0) + 1;
         update(userRef, {
-          totalKills: (data.totalKills || 0) + 1,
+          totalKills: newTotalKills,
           [`bossStats/${bossId}/kills`]: (data.bossStats?.[bossId]?.kills || 0) + 1,
           recentActivity: updatedRecent
         });
+
+        // 勳章升級動態同步 (v12.7)
+        if (currentRoomId) {
+          update(ref(db, `rooms/${currentRoomId}/members/${userName}`), { totalKills: newTotalKills });
+        }
         
         // 同步到排行榜 (v5.0)
         syncToRankings(currentUser.uid, userName, currentUser.profile?.photoURL, 1, 0);
@@ -2084,16 +2132,16 @@ function App() {
               </div>
             </section>
 
-            {/* V11.0: Active Mission Shortcut (V11.5: Optimized to use summaries) */}
-            {currentRoomId && roomSummaries[currentRoomId] && (
+            {/* V11.0: Active Mission Shortcut (V12.5: Only show if actually joined) */}
+            {lastJoinedRoomId && roomSummaries[lastJoinedRoomId] && (
               <div className="tactical-mission-banner-v11 breathing-pulse-v11">
                 <div className="mission-info-v11">
                   <span className="mission-radar">📡</span>
                   <span className="mission-desc">
-                    <b>戰區直連：</b>您目前在 <b>{BOSSES[roomSummaries[currentRoomId]?.bossId]?.name || '未知目標'}</b> 的指揮頻道中
+                    <b>戰區直連：</b>您目前在 <b>{BOSSES[roomSummaries[lastJoinedRoomId]?.bossId]?.name || '未知目標'}</b> 的指揮頻道中
                   </span>
                 </div>
-                <button className="jump-back-btn-v11" onClick={() => setView('room')}>
+                <button className="jump-back-btn-v11" onClick={() => { setCurrentRoomId(lastJoinedRoomId); setView('room'); }}>
                   立即返回戰場 (無需密碼)
                 </button>
               </div>
@@ -2113,9 +2161,13 @@ function App() {
                       <div className="room-time">{formatTime(now - room.createdAt)}</div>
                       <div className="room-status"><span className="status-pulse-green">●</span> 熱烈打王中...</div>
                       <div className="room-action">
-                        {currentRoomId === room.id ? (
+                        {lastJoinedRoomId === room.id ? (
                           <button className="join-room-btn-v11 active-session" onClick={() => { setCurrentRoomId(room.id); setView('room'); }}>
                             返回房間
+                          </button>
+                        ) : memberCount >= 4 ? (
+                          <button className="join-room-btn-v11 room-is-full" disabled>
+                            房間已滿
                           </button>
                         ) : (
                           <button className="join-room-btn-v11" onClick={() => { setCurrentRoomId(room.id); setView('join'); }}>
@@ -2154,11 +2206,23 @@ function App() {
             <div className="modal">
               <h2>加入房間 {currentRoomId}</h2>
               <p>Boss: {BOSSES[room.bossId]?.name}</p>
-              <input type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} placeholder="密碼" />
-              <input value={joinNameInput} onChange={(e) => setJoinNameInput(e.target.value)} placeholder="您的名稱" />
+              
+              <div className="v9-readonly-input" style={{ marginBottom: '15px' }}>
+                <span className="label">登場身分 :</span>
+                <span className="value">{userName}</span>
+              </div>
+
+              <input 
+                type="password" 
+                value={passwordInput} 
+                onChange={(e) => setPasswordInput(e.target.value)} 
+                placeholder="請輸入房間密碼" 
+                autoFocus
+              />
+              
               <div className="modal-btns">
                 <button onClick={joinRoom}>上車</button>
-                <button onClick={() => setView('lobby')} className="cancel-btn">回大廳</button>
+                <button onClick={() => { setView('lobby'); setCurrentRoomId(null); }} className="cancel-btn">回大廳</button>
               </div>
             </div>
           </div>
@@ -2194,7 +2258,17 @@ function App() {
                         {renderAvatar(typeof mData === 'object' ? mData.photoURL : '🐶', "v9-mini-avatar")}
                         <span className={`status-dot-v9 ${typeof mData === 'object' && mData.isOnline ? 'online' : 'offline'}`}></span>
                       </div>
-                      <span className="member-name">{mName}</span>
+                      <div className="member-names-stack">
+                        <span className="member-name">{mName}</span>
+                        {(() => {
+                          const rank = getRankInfo(typeof mData === 'object' ? mData.totalKills : 0);
+                          return (
+                            <span className="member-rank-mini" style={{ color: rank.color }}>
+                              {rank.badge} {rank.fullTitle}
+                            </span>
+                          );
+                        })()}
+                      </div>
                       {mName === currentRoom.conductor ? (
                         <span className="v9-conductor-badge">👑 車長</span>
                       ) : (
@@ -2265,8 +2339,9 @@ function App() {
                 <div className="v9-control-group">
                   <button className="btn-v9-grey" onClick={() => setShowVoiceSettings(true)}>⚙️ 語音設定</button>
                   <button className="btn-v9-yellow" onClick={() => {
-                    navigator.clipboard.writeText(window.location.href);
-                    alert('連結已複製！');
+                    const shareUrl = `${window.location.origin}${window.location.pathname}#${currentRoomId}`;
+                    navigator.clipboard.writeText(shareUrl);
+                    alert('房號連結已複製 (含自動夾帶房號)！');
                   }}>分享房間連結</button>
                   <button className="btn-v9-red" onClick={() => setShowLeaveModal(true)}>下車離開 (返回大廳)</button>
                   <button className="btn-v9-orange" onClick={toggleWildBossExplore}>
