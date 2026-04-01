@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db, auth, googleProvider } from './firebase';
-import { ref, onValue, set, update, remove, onDisconnect, get, off, query, orderByChild, equalTo, limitToLast, child } from 'firebase/database';
+import { ref, onValue, set, update, remove, onDisconnect, get, off, query, orderByChild, equalTo, limitToFirst, startAt, endAt, child, increment, onChildAdded, onChildChanged, onChildRemoved } from 'firebase/database';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import html2canvas from 'html2canvas';
 import './membership.css';
@@ -185,6 +185,47 @@ function App() {
   const [leaderboardData, setLeaderboardData] = useState([]);
   const [availableRankMonths, setAvailableRankMonths] = useState([]);
   const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(false);
+  const fetchRoomSummaries = async () => {
+    setIsSummariesLoading(true);
+    try {
+      const snap = await get(ref(db, 'roomSummaries'));
+      if (snap.exists()) {
+        const data = snap.val() || {};
+        setRoomSummaries(data);
+        setLastSummariesUpdate(Date.now());
+      }
+    } catch (err) {
+      console.error("Fetch summaries error (Permission Denied?):", err);
+    } finally {
+      setIsSummariesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRoomSummaries();
+  }, []);
+
+  useEffect(() => {
+    // 1. 大廳摘要監聽器 (極速同步核心) - v15.2: 全面改為 onValue 智慧差量更新
+    const unsub = onValue(ref(db, 'roomSummaries'), (snap) => {
+      const data = snap.val() || {};
+      setRoomSummaries(data);
+      setLastSummariesUpdate(Date.now());
+      // 正在房內時，同步摘要進入 local room 狀態
+      if (currentRoomId && data[currentRoomId]) {
+        setRooms(prev => {
+          const existing = prev[currentRoomId] || { records: {}, members: {} };
+          return {
+            ...prev,
+            [currentRoomId]: { ...existing, ...data[currentRoomId] }
+          };
+        });
+      }
+    });
+
+    return () => unsub();
+  }, [currentRoomId]);
+
   const [hasInitialRankingsFetch, setHasInitialRankingsFetch] = useState(false); // 極致節流標記 (v6.0)
 
   // Native Auth States (v3.0)
@@ -217,29 +258,21 @@ function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [currentUser]);
 
-  const fetchRoomSummaries = async () => {
-    setIsSummariesLoading(true);
-    try {
-      const snapshot = await get(ref(db, 'roomSummaries'));
-      setRoomSummaries(snapshot.val() || {});
-      setLastSummariesUpdate(Date.now());
-    } catch (err) {
-      console.error("Failed to fetch room summaries:", err);
-    } finally {
-      setIsSummariesLoading(false);
-    }
-  };
-
-  // 1. 大廳數據智慧脈沖同步 (v11.7 改為 10秒輪詢，節省 90% 常駐流量)
+  // 1. 大廳數據智慧脈沖同步 (v15.2 改為 onValue 持續監聽，僅在變動時傳送差異，極省流量)
   useEffect(() => {
     if (view !== 'lobby' || !isTabActive) return;
 
-    const pulseFetch = () => fetchRoomSummaries();
+    setIsSummariesLoading(true);
+    const summaryRef = ref(db, 'roomSummaries');
     
-    pulseFetch(); // 進入/切回大廳立刻更新一次
-    const interval = setInterval(pulseFetch, 10000); // 每 10 秒跳動更新一次
+    // onValue 在初次載入後僅傳送 Diffs
+    const unsubscribe = onValue(summaryRef, (snap) => {
+      setRoomSummaries(snap.val() || {});
+      setLastSummariesUpdate(Date.now());
+      setIsSummariesLoading(false);
+    });
     
-    return () => clearInterval(interval);
+    return () => unsubscribe();
   }, [view, isTabActive]);
 
   // 2. 當進入特定房間時，採用海量高密度頻道優化監聽 (V12.0 High-Density Event-Driven)
@@ -263,30 +296,62 @@ function App() {
       }
     });
 
-    // 第二步：開始分開掛載「輕量級」監聽器
-    // a. 監聽頻道列表 (流量最大戶，分開監聽後更新只傳局部內容)
-    const unsubRecords = onValue(child(roomRef, 'records'), (snap) => {
-      const rData = snap.val() || {};
+    // 第二步：開始分開掛載「輕量級」監聽器 - v15.3: 從 onValue 全量下載改為 Child 級別下載
+    // a. 監聽頻道列表 (流量最大戶，改用增量更新，極限節流)
+    const unsubAdded = onChildAdded(recordsRef, (snap) => {
+      const chKey = snap.key;
+      const data = snap.val();
       setRooms(prev => {
-        const existing = prev[currentRoomId] || {};
+        const existing = prev[currentRoomId] || { records: {}, members: {} };
         return { 
           ...prev, 
-          [currentRoomId]: { ...existing, records: rData }
+          [currentRoomId]: { 
+            ...existing, 
+            records: { ...existing.records, [chKey]: data } 
+          }
         };
       });
     });
 
-    // b. 監聽成員列表與上線狀態
-    const unsubMembers = onValue(child(roomRef, 'members'), (snap) => {
+    const unsubChanged = onChildChanged(recordsRef, (snap) => {
+      const chKey = snap.key;
+      const data = snap.val();
+      setRooms(prev => {
+        const existing = prev[currentRoomId] || { records: {}, members: {} };
+        return { 
+          ...prev, 
+          [currentRoomId]: { 
+            ...existing, 
+            records: { ...existing.records, [chKey]: data } 
+          }
+        };
+      });
+    });
+
+    const unsubRemoved = onChildRemoved(recordsRef, (snap) => {
+      const chKey = snap.key;
+      setRooms(prev => {
+        const existing = prev[currentRoomId] || { records: {}, members: {} };
+        const newRecords = { ...existing.records };
+        delete newRecords[chKey];
+        return { 
+          ...prev, 
+          [currentRoomId]: { ...existing, records: newRecords }
+        };
+      });
+    });
+
+    // b. 監聽成員列表 (減少 Heartbeat 心跳造成的大全包下載)
+    const unsubMemChanged = onValue(child(roomRef, 'members'), (snap) => {
       const mData = snap.val() || {};
       setRooms(prev => {
-        const existing = prev[currentRoomId] || {};
+        const existing = prev[currentRoomId] || { records: {}, members: {} };
         const newRoomData = { ...existing, members: mData };
         
         // 車長負責同步大廳人數與成員名單 (僅在成員變動時觸發)
         if (newRoomData.conductor === userName) {
           const mCount = Object.keys(mData).length;
-          const names = Object.keys(mData); // 以名稱為 Key 的結構
+          const names = Object.keys(mData);
           update(ref(db, `roomSummaries/${currentRoomId}`), { 
             onlineCount: mCount,
             memberNames: names
@@ -297,23 +362,21 @@ function App() {
       });
     });
 
-    // c. 監聽房間 Meta (車長, 設定等低頻變動資料)
-    const unsubMeta = onValue(roomRef, (snap) => {
-      const allData = snap.val();
-      if (!allData) return;
-      const { records: _, members: __, ...meta } = allData; // 排除 records 與 members
-      setRooms(prev => {
-        const existing = prev[currentRoomId] || {};
-        return {
-          ...prev,
-          [currentRoomId]: { 
-            ...existing, 
-            ...meta,
-            // 修正：當雲端某些欄位被 null 刪除時，local 必須同步清除 (v12.9)
-            wildBossExplore: meta.wildBossExplore || null,
-            voiceAlert: meta.voiceAlert || null
-          }
-        };
+    // c. 監聽房間 Meta (車長, 設定等低頻變動資料) - v15.5: 精細化分路監聽，杜絕 records 造成的重複流量爆炸
+    const metaPaths = ['conductor', 'bossId', 'password', 'wildBossExplore', 'voiceAlert'];
+    const unsubMetas = metaPaths.map(path => {
+      return onValue(child(roomRef, path), (snap) => {
+        const val = snap.val();
+        setRooms(prev => {
+          const existing = prev[currentRoomId] || { records: {}, members: {} };
+          return {
+            ...prev,
+            [currentRoomId]: { 
+              ...existing, 
+              [path]: val
+            }
+          };
+        });
       });
     });
 
@@ -324,9 +387,11 @@ function App() {
     });
 
     return () => {
-      unsubRecords();
-      unsubMembers();
-      unsubMeta();
+      unsubAdded();
+      unsubChanged();
+      unsubRemoved();
+      unsubMemChanged();
+      metaPaths.forEach((_, i) => unsubMetas[i]());
       unsubLove();
     };
   }, [currentRoomId, view, isTabActive, userName]);
@@ -411,61 +476,59 @@ function App() {
    * [萬能同步器] 全站數據同步匯流排 (v5.0)
    * 採用三路寫入 (Triple-Write) 策略，保證榜單讀取流量趨近於零
    */
-  const syncToRankings = async (uid, nickname, photoURL, deltaKills = 0, deltaHours = 0) => {
+  const syncToRankings = (uid, name, photoURL, deltaKills, deltaHours) => {
     if (!uid) return;
-    
-    const yyyymm = getYearMonth();
-    const currentName = nickname || '未知英雄';
-    const currentAvatar = photoURL || '🐶';
-    
-    // 1. 預讀取現有值 (僅在更新時需要，為求精確且次數極少，此處消耗可忽略)
-    const [atKillsSnap, atHoursSnap, moKillsSnap, moHoursSnap] = await Promise.all([
-      get(ref(db, `rankings/allTime/kills/${uid}/v`)),
-      get(ref(db, `rankings/allTime/hours/${uid}/v`)),
-      get(ref(db, `rankings/monthly/${yyyymm}/kills/${uid}/v`)),
-      get(ref(db, `rankings/monthly/${yyyymm}/hours/${uid}/v`))
-    ]);
-
-    const updates = {};
-    const commonInfo = { n: currentName, a: currentAvatar };
-
-    // 處理擊殺數據同步 (v8.1: 支持絕對值同步以修復「有數據不上榜」的問題)
-    const newAtKills = deltaKills > 0 ? (atKillsSnap.val() || 0) + deltaKills : (currentUser?.profile?.totalKills || 0);
-    const newMoKills = deltaKills > 0 ? (moKillsSnap.val() || 0) + deltaKills : 0; // 月榜邏輯較複雜，優先保證總榜正確
-
-    if (newAtKills > 0 || deltaKills > 0) {
-      updates[`rankings/allTime/kills/${uid}`] = { ...commonInfo, v: newAtKills };
-      if (newMoKills > 0) updates[`rankings/monthly/${yyyymm}/kills/${uid}`] = { ...commonInfo, v: newMoKills };
-    }
-
-    // 處理時長數據同步
-    const newAtHours = deltaHours > 0 ? (atHoursSnap.val() || 0) + deltaHours : (currentUser?.profile?.totalHours || 0);
-    if (newAtHours > 0 || deltaHours > 0) {
-      updates[`rankings/allTime/hours/${uid}`] = { ...commonInfo, v: newAtHours };
-    }
-
-    // 更新可用月份索引
-    updates[`rankings/meta/availableMonths/${yyyymm}`] = true;
-
-    // 執行多路寫入
     try {
-      await update(ref(db), updates);
-    } catch (e) {
-      console.error("[RankSync Error]", e);
+      const now = Date.now();
+      const currentMonth = new Date(now).toISOString().slice(0, 7);
+      const commonPath_AT_K = `rankings/${currentMonth}/allTime/${uid}`;
+      const commonPath_AT_H = `rankings/${currentMonth}/allTimeHours/${uid}`;
+      const updates = {};
+      
+      if (deltaKills > 0) {
+        updates[`${commonPath_AT_K}/v`] = increment(deltaKills);
+        updates[`${commonPath_AT_K}/n`] = name;
+        updates[`${commonPath_AT_K}/p`] = photoURL;
+      }
+      if (deltaHours > 0) {
+        updates[`${commonPath_AT_H}/v`] = increment(deltaHours);
+        updates[`${commonPath_AT_H}/n`] = name;
+        updates[`${commonPath_AT_H}/p`] = photoURL;
+      }
+
+      updates[`rankings/meta/availableMonths/${currentMonth}`] = true;
+      updates[`users/${uid}/displayName`] = name;
+      updates[`users/${uid}/photoURL`] = photoURL;
+      updates[`users/${uid}/lastSeen`] = now;
+
+      if (Object.keys(updates).length > 0) {
+        update(ref(db), updates);
+      }
+    } catch (err) {
+      console.error("Atomic sync error:", err);
     }
   };
 
-  const fetchAllUsers = async () => {
+  const fetchAllUsers = async (searchTerm = '') => {
     if (!isAdmin) return;
     setIsUsersLoading(true);
     try {
-      const snapshot = await get(ref(db, 'users'));
+      let q;
+      if (searchTerm) {
+        // v15.5: 定向搜尋，不抓全量
+        q = query(ref(db, 'users'), orderByChild('displayName'), startAt(searchTerm), endAt(searchTerm + '\uf8ff'), limitToFirst(50));
+      } else {
+        // v15.5: 預設只抓前 100 位，防止流量震盪
+        q = query(ref(db, 'users'), limitToFirst(100));
+      }
+      const snapshot = await get(q);
       if (snapshot.exists()) {
         setAllUsers(snapshot.val());
+      } else {
+        setAllUsers({});
       }
     } catch (err) {
       console.error("Failed to fetch users:", err);
-      alert("讀取成員資料失敗");
     } finally {
       setIsUsersLoading(false);
     }
@@ -491,14 +554,21 @@ function App() {
     }
   }, [view, isAdmin, isTabActive]);
 
+  // 管理者不再預載全站房資訊，改由摘要處理清單
   useEffect(() => {
     if (view === 'admin' && isAdmin && isTabActive) {
-      const fullRoomsRef = ref(db, 'rooms');
-      return onValue(fullRoomsRef, (snapshot) => {
-        setRooms(snapshot.val() || {});
-      });
+      // v15.5: 進入後台時自動載入第一批成員 (限 100 人)
+      if (Object.keys(allUsers).length === 0) {
+        fetchAllUsers();
+      }
+      
+      // 此處僅為確保摘要最新，若 lobby 的監聽器未作用，則補掛一個
+      if (Object.keys(roomSummaries).length === 0) {
+        const unsub = onValue(ref(db, 'roomSummaries'), snap => setRoomSummaries(snap.val() || {}));
+        return () => unsub();
+      }
     }
-  }, [view, isAdmin, isTabActive]);
+  }, [view, isAdmin, isTabActive, roomSummaries, allUsers]);
 
   // --- 排行榜數據抓取 (V10-ULTIMATE: 5s 戰略同步序列) ---
   const fetchLeaderboard = async (isManual = false) => {
@@ -1000,10 +1070,11 @@ function App() {
       createdAt: Date.now()
     };
     
-    // 同步寫入摘要，讓大廳監聽超省流量
+    // 同步寫入摘要，讓大廳監聽與管理者後台超省流量 (v15.2: 補上密碼字段供管理用)
     const summary = {
       id,
       bossId: selectedBossId,
+      password: newRoom.password, // v15.2 Patch: Admin can see pwd in summary
       conductor,
       totalKills: 0,
       createdAt: Date.now(),
@@ -1071,16 +1142,15 @@ function App() {
       if (sessionStartTime) {
         const delta = (Date.now() - sessionStartTime) / (1000 * 60 * 60); // 小時
         const userRef = ref(db, `users/${currentUser.uid}`);
-        get(userRef).then(snap => {
-          const data = snap.val() || {};
-          const bossId = room.bossId;
-          update(userRef, {
-            totalHours: (data.totalHours || 0) + delta,
-            [`bossStats/${bossId}/hours`]: (data.bossStats?.[bossId]?.hours || 0) + delta
-          });
-          // 同步到排行榜 (v5.0)
-          syncToRankings(currentUser.uid, userName, currentUser.profile?.photoURL, 0, delta);
+        const bossId = room.bossId;
+        
+        update(userRef, {
+          totalHours: increment(delta),
+          [`bossStats/${bossId}/hours`]: increment(delta)
         });
+        
+        // 同步到排行榜 (v5.0 + v15.0 原子累計)
+        syncToRankings(currentUser.uid, userName, currentUser.profile?.photoURL, 0, delta);
       }
 
       const rawMembers = room.members || {};
@@ -1152,17 +1222,19 @@ function App() {
       occupant: null
     });
 
-    // 增加房間總擊殺 (同步更新詳情與摘要)
-    update(ref(db), { 
-      [`rooms/${currentRoomId}/totalKills`]: (currentRoom.totalKills || 0) + 1,
-      [`roomSummaries/${currentRoomId}/totalKills`]: (currentRoom.totalKills || 0) + 1,
-      // V12.8: 已與頻道狀態解耦，打野狀態改由手動控制
-    });
+    // 增加房間總擊殺 (同步更新詳情與摘要) - v15.0 原子累載
+    const globalUpdates = { 
+      [`rooms/${currentRoomId}/totalKills`]: increment(1),
+      [`roomSummaries/${currentRoomId}/totalKills`]: increment(1),
+    };
+    update(ref(db), globalUpdates);
 
-    // 增加個人與 Boss 個別統計
+    // 增加個人與 Boss 個別統計 - v15.0 原子累載
     if (currentUser && currentRoom) {
       const bossId = currentRoom.bossId;
       const userRef = ref(db, `users/${currentUser.uid}`);
+      
+      // 獲取最新狀態用於紀錄 Activity (此處讀取仍有必要，因為 Activity 是陣列操作)
       get(userRef).then(snap => {
         const data = snap.val() || {};
         const newActivity = {
@@ -1174,19 +1246,21 @@ function App() {
         const recent = data.recentActivity || [];
         const updatedRecent = [newActivity, ...recent].slice(0, 5);
         
-        const newTotalKills = (data.totalKills || 0) + 1;
-        update(userRef, {
-          totalKills: newTotalKills,
-          [`bossStats/${bossId}/kills`]: (data.bossStats?.[bossId]?.kills || 0) + 1,
+        // 個人累計使用 increment
+        const userUpdates = {
+          totalKills: increment(1),
+          [`bossStats/${bossId}/kills`]: increment(1),
           recentActivity: updatedRecent
-        });
+        };
+        update(userRef, userUpdates);
 
-        // 勳章升級動態同步 (v12.7)
+        // 勳章升級動態同步 (此處利用 local 加算暫時模擬其值供房內即時顯示)
         if (currentRoomId) {
-          update(ref(db, `rooms/${currentRoomId}/members/${userName}`), { totalKills: newTotalKills });
+          const simulatedKills = (data.totalKills || 0) + 1;
+          update(ref(db, `rooms/${currentRoomId}/members/${userName}`), { totalKills: simulatedKills });
         }
         
-        // 同步到排行榜 (v5.0)
+        // 同步到排行榜 (v5.0 + v15.0 原子累計)
         syncToRankings(currentUser.uid, userName, currentUser.profile?.photoURL, 1, 0);
       });
     }
@@ -1226,12 +1300,10 @@ function App() {
     const records = currentRoom.records || {};
     let channelsToMove = {};
     
-    // (變更) 改進：判斷與篩選邏輯，確保字串 ID 也能正確判斷奇偶
     if (loveTransferMode === 'all') {
       channelsToMove = { ...records };
     } else {
       Object.entries(records).forEach(([ch, data]) => {
-        // ch 可能是 "1", "2" 等字串
         const num = parseInt(ch.replace(/[^0-9]/g, ''));
         if (loveTransferMode === 'odd' && num % 2 !== 0) channelsToMove[ch] = data;
         if (loveTransferMode === 'even' && num % 2 === 0) channelsToMove[ch] = data;
@@ -1376,8 +1448,29 @@ function App() {
   };
 
   const adminKickMember = (roomId, memberName) => {
+    const cleanId = String(roomId || '').replace('#', '');
+    console.log(`[正式踢除] 房號: ${cleanId}, 成員: ${memberName}`);
+    
     if (!window.confirm(`確定要將成員 ${memberName} 【強制下車】嗎？`)) return;
-    remove(ref(db, `rooms/${roomId}/members/${memberName}`));
+
+    remove(ref(db, `rooms/${cleanId}/members/${memberName}`))
+      .then(() => {
+        const summary = roomSummaries[cleanId];
+        if (summary) {
+          const newNames = (summary.memberNames || []).filter(n => n !== memberName);
+          const updates = { 
+            memberNames: newNames,
+            onlineCount: newNames.length,
+            conductor: summary.conductor === memberName && newNames.length > 0 ? newNames[0] : summary.conductor
+          };
+          if (summary.conductor === memberName && newNames.length > 0) {
+            update(ref(db, `rooms/${cleanId}`), { conductor: newNames[0] });
+          }
+          return update(ref(db, `roomSummaries/${cleanId}`), updates);
+        }
+      })
+      .then(() => alert("✅ 已成功移除成員"))
+      .catch(err => alert("❌ 移除失敗: " + err.message));
   };
 
   const applyForMembership = () => {
@@ -1428,8 +1521,18 @@ function App() {
   };
 
   const adminTransferConductor = (roomId, newConductor) => {
-    if (!window.confirm(`確定要將房號 ${roomId} 的【車長】轉移給 ${newConductor} 嗎？`)) return;
-    update(ref(db, `rooms/${roomId}`), { conductor: newConductor });
+    const cleanId = String(roomId || '').replace('#', '');
+    console.log(`[正式轉移] 房號: ${cleanId}, 新車長: ${newConductor}`);
+    
+    if (!window.confirm(`確定要將房號 ${cleanId} 的【車長】轉移給 ${newConductor} 嗎？`)) return;
+
+    const updates = { conductor: newConductor };
+    Promise.all([
+      update(ref(db, `rooms/${cleanId}`), updates),
+      update(ref(db, `roomSummaries/${cleanId}`), updates)
+    ])
+    .then(() => alert("👑 車長授權成功！"))
+    .catch(err => alert("❌ 轉移失敗: " + err.message));
   };
 
   const adminResetUserStats = async (uid) => {
@@ -1505,7 +1608,8 @@ function App() {
   };
 
   const renderAdminDashboard = () => {
-    const roomList = Object.entries(rooms).map(([id, data]) => ({ id, ...data }));
+    // v15.2 改由摘要獲取清單，不必等待全站 Rooms 加載
+    const roomList = Object.entries(roomSummaries).map(([id, data]) => ({ id, ...data }));
     const userList = Object.entries(allUsers).map(([uid, data]) => ({ uid, ...data }));
     return (
       <div className="admin-container">
@@ -1538,7 +1642,6 @@ function App() {
                 <thead><tr><th>房號</th><th>Boss</th><th>密碼</th><th>車長</th><th>當前成員 / 管理</th><th>操作</th></tr></thead>
                 <tbody>
                   {roomList.map(r => {
-                    const membersMap = r.members || {};
                     return (
                       <tr key={r.id}>
                         <td className="admin-room-id">#{r.id}</td>
@@ -1547,25 +1650,33 @@ function App() {
                         <td className="admin-conductor">{r.conductor}</td>
                         <td className="admin-members">
                           <div className="admin-member-tags">
-                            {Object.keys(membersMap).map(m => {
+                            {(r.memberNames || []).map(m => {
                               const isCond = r.conductor === m;
                               return (
-                                <div 
-                                  key={m} 
-                                  className={`admin-member-tag ${isCond ? 'is-cond' : ''} ${adminMenu?.m === m && adminMenu?.rid === r.id ? 'active' : ''}`}
-                                  onClick={() => setAdminMenu(adminMenu?.m === m && adminMenu?.rid === r.id ? null : { rid: r.id, m })}
-                                >
+                                <div key={m} className={`admin-member-tag ${isCond ? 'is-cond' : ''}`}>
                                   <span className="m-name">{isCond ? '👑' : ''} {m}</span>
-                                  {adminMenu?.m === m && adminMenu?.rid === r.id && (
-                                    <div className="admin-member-actions-popup glass-panel">
-                                      {!isCond && <button onClick={(e) => { e.stopPropagation(); adminTransferConductor(r.id, m); setAdminMenu(null); }}>👑 成為車長</button>}
-                                      <button className="kick-btn-popup" onClick={(e) => { e.stopPropagation(); adminKickMember(r.id, m); setAdminMenu(null); }}>🥾 強制下車</button>
-                                    </div>
-                                  )}
+                                  <div className="admin-inline-actions" style={{display: 'inline-flex', gap: '4px', marginLeft: '8px'}}>
+                                    {!isCond && (
+                                      <button 
+                                        className="btn-micro" 
+                                        style={{background: '#f6cf57', color: '#000', padding: '2px 6px', fontSize: '10px'}}
+                                        onClick={() => adminTransferConductor(r.id, m)}
+                                      >
+                                        轉移
+                                      </button>
+                                    )}
+                                    <button 
+                                      className="btn-micro" 
+                                      style={{background: '#ff4444', color: '#fff', padding: '2px 6px', fontSize: '10px'}}
+                                      onClick={() => adminKickMember(r.id, m)}
+                                    >
+                                      踢除
+                                    </button>
+                                  </div>
                                 </div>
                               );
                             })}
-                            {Object.keys(membersMap).length === 0 && <span className="no-members">尚無成員</span>}
+                            {(!r.memberNames || r.memberNames.length === 0) && <span className="no-members">尚無成員</span>}
                           </div>
                         </td>
                         <td>
@@ -1577,7 +1688,9 @@ function App() {
                   })}
                 </tbody>
               </table>
+              
             </div>
+
           ) : (
             <div className="admin-users-view">
               {/* --- 獨立即時審核區塊 (不需載入全體成員即可查看) --- */}
@@ -1713,7 +1826,9 @@ function App() {
                 </>
               )}
             </div>
-          )}
+            )}
+
+          {/* 移除原本這裡的 adminMenu 區塊 */}
         </div>
       </div>
     );
@@ -2502,17 +2617,17 @@ function App() {
                   <div className="report-stats">
                     <div className="r-stat">
                       <label>最終擊殺總數</label>
-                      <value>{currentRoom.totalKills || 0}</value>
+                      <span>{currentRoom.totalKills || 0}</span>
                     </div>
                     <div className="r-stat">
                       <label>總計執勤時長</label>
-                      <value>{formatTime(now - currentRoom.createdAt)}</value>
+                      <span>{formatTime(now - currentRoom.createdAt)}</span>
                     </div>
                     <div className="r-stat">
                       <label>全車擊殺效率</label>
-                      <value>
+                      <span>
                         {((currentRoom.totalKills || 0) / Math.max(0.01, (now - currentRoom.createdAt) / 3600000)).toFixed(1)} <span style={{fontSize:'0.8rem', color:'#888'}}>隻/時</span>
-                      </value>
+                      </span>
                     </div>
                   </div>
 
@@ -2522,11 +2637,11 @@ function App() {
                     <div className="ps-grid">
                       <div className="ps-item">
                         <label>個人隨車時長</label>
-                        <value>{formatTime(now - (sessionStartTime || now))}</value>
+                        <span>{formatTime(now - (sessionStartTime || now))}</span>
                       </div>
                       <div className="ps-item">
                         <label>參與擊殺次數</label>
-                        <value>{Math.max(0, (currentRoom.totalKills || 0) - (currentRoom.members?.[userName]?.startKills || 0))}</value>
+                        <span>{Math.max(0, (currentRoom.totalKills || 0) - (currentRoom.members?.[userName]?.startKills || 0))}</span>
                       </div>
                     </div>
                   </div>
@@ -2626,6 +2741,7 @@ function App() {
       }
       return <div>未知頁面</div>;
     } catch (err) {
+      console.error("[Render Error]", err);
       return <div className="error-view">系統錯誤 <button onClick={backToLobby}>返回</button></div>;
     }
   };

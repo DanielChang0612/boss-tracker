@@ -267,21 +267,35 @@ button:active { transform: scale(0.95); }
 
 .admin-member-tag { 
   position: relative !important; 
-  flex-shrink: 0 !important; /* 禁止標籤本身縮小 */
+  flex-shrink: 0 !important;
   cursor: pointer !important;
   background: rgba(255, 255, 255, 0.05) !important; 
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   padding: 6px 14px !important; 
   border-radius: 10px; 
   font-size: 0.85rem;
-  transition: all 0.2s; 
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
   user-select: none;
-  white-space: nowrap !important; /* 確保名字不換行 */
+  white-space: nowrap !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
 }
-.admin-member-tag:hover, .admin-member-tag.active { 
-  background: rgba(255, 255, 255, 0.12) !important; 
+.admin-member-tag:hover { 
+  background: rgba(255, 255, 255, 0.15) !important; 
   border-color: var(--gold) !important; 
   box-shadow: 0 0 15px var(--gold-glow) !important;
+  transform: translateY(-2px) scale(1.05);
+}
+.admin-member-tag.active {
+  background: var(--gold) !important;
+  color: #000 !important;
+  border-color: #fff !important;
+  box-shadow: 0 0 20px var(--gold-glow) !important;
+}
+.admin-member-tag.is-cond {
+  border-color: var(--gold) !important;
+  background: rgba(212, 175, 55, 0.1) !important;
 }
 
 /* --- Admin Side Drawer (v5.1) --- */
@@ -318,11 +332,28 @@ button:active { transform: scale(0.95); }
   width: 100%; padding: 14px; border-radius: 12px; border: none;
   font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: 0.3s;
 }
-.btn-become-cond { background: var(--gold-glow); color: #000; border: 1px solid var(--gold); }
-.btn-become-cond:hover { background: var(--gold); transform: translateY(-2px); box-shadow: 0 5px 15px rgba(212, 175, 55, 0.3); }
+.btn-become-cond { 
+  background: var(--gold) !important; 
+  color: #000 !important; 
+  border: none !important;
+  transition: all 0.3s ease;
+}
+.btn-become-cond:hover { 
+  transform: translateY(-3px) scale(1.02); 
+  box-shadow: 0 8px 25px var(--gold-glow) !important;
+}
 
-.btn-kick-member { background: rgba(255, 82, 82, 0.1); color: #ff5252; border: 1px solid rgba(255, 82, 82, 0.3); }
-.btn-kick-member:hover { background: #ff5252; color: #fff; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(255, 82, 82, 0.3); }
+.btn-kick-member { 
+  background: rgba(255, 82, 82, 0.05) !important; 
+  color: #ff5252 !important; 
+  border: 1.5px solid rgba(255, 82, 82, 0.3) !important;
+}
+.btn-kick-member:hover { 
+  background: #ff5252 !important; 
+  color: #fff !important; 
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(255, 82, 82, 0.4) !important;
+}
 
 .drawer-close {
   position: absolute; top: 20px; right: 20px; background: none; border: none;
