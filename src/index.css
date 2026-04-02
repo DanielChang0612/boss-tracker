@@ -2801,3 +2801,72 @@ body::before {
   font-size: 1.1rem;
   font-weight: bold;
 }
+/* --- V16.8: Wild Boss Explorer Tactical Styles --- */
+.kill-input-v25.explorer-mode-active {
+  background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
+  border: 2px solid var(--gold);
+  padding: 20px;
+  border-radius: 16px;
+  box-shadow: 0 0 30px rgba(212, 175, 55, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: explorerEntry 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.explorer-header {
+  font-family: var(--font-head);
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--gold);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.v25-input.explorer-input {
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid var(--gold-dark);
+  color: var(--gold);
+  font-size: 1.2rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.v25-input.explorer-input::placeholder {
+  color: rgba(212, 175, 55, 0.3);
+}
+
+.bg-gold-black {
+  background: var(--gold) !important;
+  color: #000 !important;
+  font-weight: 900 !important;
+  border: none !important;
+  box-shadow: 0 0 15px var(--gold-glow);
+  width: 100%;
+}
+
+.bg-gold-black:hover {
+  filter: brightness(1.1);
+  transform: translateY(-2px);
+  box-shadow: 0 0 25px var(--gold-glow);
+}
+
+@keyframes explorerEntry {
+  from { transform: scale(0.98); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* 頻道置頂高亮 (探險發現) */
+.v25-row.is-new-found {
+  background: rgba(212, 175, 55, 0.1) !important;
+  border-left: 4px solid var(--gold) !important;
+}
+
+.v25-row.is-ready.is-new-found .v5-status-badge {
+  background: var(--gold);
+  color: #000;
+  box-shadow: 0 0 15px var(--gold-glow);
+}

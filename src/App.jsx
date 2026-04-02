@@ -140,6 +140,8 @@ function App() {
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
   const [availableVoices, setAvailableVoices] = useState([]);
   const [serverOffset, setServerOffset] = useState(0); // V16.7: 伺服器時間偏移對齊
+  const [wildBossExplore, setWildBossExplore] = useState(false); // V16.8: 打野偵察模式開關
+  const [exploreChannelInput, setExploreChannelInput] = useState(''); // V16.8: 打野偵察輸入
   const [voiceSettings, setVoiceSettings] = useState(() => {
     const saved = localStorage.getItem('pikapi_voice_settings');
     // 預設優選配置 (v15.8): 語速稍微加快一點點比較好聽
@@ -1276,24 +1278,41 @@ function App() {
     }
   };
 
+  // V16.8: 打野偵察模式切換 - 會影響 UI 並開啟專用輸入框
   const toggleWildBossExplore = () => {
-    // 確保 currentRoom 存在且具有正確的資料結構 (v12.9)
-    if (!currentRoom || !currentRoomId || !userName) return;
-
-    const isActive = !!(currentRoom.wildBossExplore && currentRoom.wildBossExplore[userName]);
-    const newState = !isActive;
-
+    if (!currentRoomId) return;
+    const newState = !wildBossExplore;
+    setWildBossExplore(newState);
+    
+    // 同步到資料庫，讓房內的人都知道誰進入了打野模式 (保持原有廣播功能)
     const updates = {};
-    // 直接操作節點，確保 null 時能正確刪除對應路徑
     updates[`rooms/${currentRoomId}/wildBossExplore/${userName}`] = newState ? true : null;
-
-    // 唯有在「開始打野」時廣播，取消則保持安靜 (v12.9)
+    
     if (newState) {
       const msg = `${userName} 前往各頻道打野中`;
       updates[`rooms/${currentRoomId}/voiceAlert`] = { message: msg, ts: Date.now(), sender: userName };
+      setExploreChannelInput(''); // 重設輸入
     }
-
+    
     update(ref(db), updates);
+  };
+
+  // V16.8: 偵察模式下的專用回報邏輯 -> 強制 lastKill: 0
+  const addExploreRecord = () => {
+    const ch = exploreChannelInput.trim();
+    if (!ch || !currentRoomId) return;
+    const chKey = `CH ${ch}`;
+    
+    // 重要：lastKill = 0 是我們內定的置頂標記
+    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), {
+      lastKill: 0, 
+      reporter: userName,
+      occupant: null
+    });
+    
+    setExploreChannelInput('');
+    const msg = `${userName} 在頻道 ${ch} 發現野王啦`;
+    update(ref(db, `rooms/${currentRoomId}/voiceAlert`), { message: msg, ts: Date.now(), sender: userName });
   };
 
   const handleStationed = (chKey) => {
@@ -1378,7 +1397,6 @@ function App() {
     });
   };
 
-  // --- 把愛傳下去核心引擎 (v13.0) ---
   const handleSpreadLoveClick = () => {
     setSelectedTargetRoomId(null);
     setLoveStep(1);
@@ -2902,17 +2920,36 @@ function App() {
                   </div>
                 )}
 
-                <div className="kill-input-v25">
-                  <input
-                    type="text"
-                    className="v25-input"
-                    placeholder="輸入頻道 (例: 5)"
-                    value={inputChannel}
-                    onChange={e => setInputChannel(e.target.value)}
-                    onKeyPress={e => e.key === 'Enter' && addRecord()}
-                  />
-                  <button className="btn-v9-report" onClick={() => addRecord()}>已擊殺開始計時</button>
-                </div>
+                {/* --- 頻道回報面板切換 (v2.5) --- */}
+                {wildBossExplore ? (
+                  <div className="kill-input-v25 explorer-mode-active">
+                    <div className="explorer-header">
+                      <span className="icon">🍗</span> 偵察回報模式
+                    </div>
+                    <input
+                      type="text"
+                      className="v25-input explorer-input"
+                      placeholder="輸入發現王蹤的頻道 (例: 12)"
+                      value={exploreChannelInput}
+                      onChange={e => setExploreChannelInput(e.target.value)}
+                      onKeyPress={e => e.key === 'Enter' && addExploreRecord()}
+                      autoFocus
+                    />
+                    <button className="btn-v9-report bg-gold-black" onClick={addExploreRecord}>回報發現野王</button>
+                  </div>
+                ) : (
+                  <div className="kill-input-v25">
+                    <input
+                      type="text"
+                      className="v25-input"
+                      placeholder="輸入頻道 (例: 5)"
+                      value={inputChannel}
+                      onChange={e => setInputChannel(e.target.value)}
+                      onKeyPress={e => e.key === 'Enter' && addRecord()}
+                    />
+                    <button className="btn-v9-report" onClick={() => addRecord()}>已擊殺開始計時</button>
+                  </div>
+                )}
 
                 <div className="v25-table">
                   <div id="kill-report-card" className="v25-table-container">
@@ -2928,13 +2965,23 @@ function App() {
                     {Object.keys(records).length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '80px', color: '#444', fontStyle: 'italic' }}>等待車員回報戰況...</div>
                     ) : (
-                      Object.keys(records).sort((a, b) => records[a].lastKill - records[b].lastKill).map(ch => {
-                        const remaining = currentBoss.time - (now - records[ch].lastKill) / 60000;
-                        const isReady = remaining <= 0;
-                        const occupant = records[ch].occupant || '';
+                      Object.keys(records)
+                        .sort((a, b) => {
+                          const valA = (records[a] || {}).lastKill ?? 9999999999999;
+                          const valB = (records[b] || {}).lastKill ?? 9999999999999;
+                          // V16.8 置頂邏輯: 將 lastKill === 0 (偵察到的) 排在最前
+                          if (valA === 0 && valB !== 0) return -1;
+                          if (valA !== 0 && valB === 0) return 1;
+                          return valA - valB;
+                        })
+                        .map(ch => {
+                          const isNewFound = records[ch].lastKill === 0;
+                          const remaining = isNewFound ? 0 : currentBoss.time - (now - records[ch].lastKill) / 60000;
+                          const isReady = remaining <= 0;
+                          const occupant = records[ch].occupant || '';
 
                         return (
-                          <div key={ch} className={`v25-row ${isReady ? 'is-ready' : ''}`}>
+                          <div key={ch} className={`v25-row ${isReady ? 'is-ready' : ''} ${isNewFound ? 'is-new-found' : ''}`}>
                             {/* 1. 頻道與佔位 */}
                             <div className="v4-ch-group-v9">
                               <span className="v5-ch-id">CH {ch.replace('CH', '').trim()}</span>
