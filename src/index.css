@@ -2870,3 +2870,65 @@ body::before {
   color: #000;
   box-shadow: 0 0 15px var(--gold-glow);
 }
+
+/* --- V16.9: Room Password Modifier Styles --- */
+.v9-pwd-edit-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: fadeIn 0.3s ease;
+}
+
+.v9-pwd-input-field {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+  color: var(--gold);
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  width: 140px;
+  outline: none;
+}
+
+.btn-v9-edit-pwd {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.9rem;
+  margin-left: 5px;
+}
+
+.btn-v9-edit-pwd:hover {
+  background: rgba(212, 175, 55, 0.1);
+  border-color: var(--gold);
+  transform: scale(1.1);
+}
+
+.btn-v9-confirm {
+  background: var(--gold) !important;
+  color: #000 !important;
+  border: none !important;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-weight: 900 !important;
+  cursor: pointer;
+}
+
+.btn-v9-cancel {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.v9-pwd-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

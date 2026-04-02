@@ -142,6 +142,8 @@ function App() {
   const [serverOffset, setServerOffset] = useState(0); // V16.7: 伺服器時間偏移對齊
   const [wildBossExplore, setWildBossExplore] = useState(false); // V16.8: 打野偵察模式開關
   const [exploreChannelInput, setExploreChannelInput] = useState(''); // V16.8: 打野偵察輸入
+  const [isEditingPassword, setIsEditingPassword] = useState(false); // V16.9: 修改密碼模式
+  const [newPasswordInput, setNewPasswordInput] = useState(''); // V16.9: 新密碼輸入
   const [voiceSettings, setVoiceSettings] = useState(() => {
     const saved = localStorage.getItem('pikapi_voice_settings');
     // 預設優選配置 (v15.8): 語速稍微加快一點點比較好聽
@@ -1313,6 +1315,27 @@ function App() {
     setExploreChannelInput('');
     const msg = `${userName} 在頻道 ${ch} 發現野王啦`;
     update(ref(db, `rooms/${currentRoomId}/voiceAlert`), { message: msg, ts: Date.now(), sender: userName });
+  };
+
+  // V16.9: 修改房間密碼 (僅車長可用)
+  const updateRoomPassword = () => {
+    if (!currentRoomId || !currentRoom) return;
+    const isOwner = currentRoom.conductor === userName;
+    if (!isOwner) return;
+
+    const newPwd = newPasswordInput.trim();
+    if (!newPwd) {
+      alert("密碼不能為空！");
+      return;
+    }
+    
+    // 同步更新房間主體與大廳摘要 (v16.9.2: 確保指揮部能看到更新後的密碼)
+    const updates = {};
+    updates[`rooms/${currentRoomId}/password`] = newPwd;
+    updates[`roomSummaries/${currentRoomId}/password`] = newPwd;
+    
+    update(ref(db), updates);
+    setIsEditingPassword(false);
   };
 
   const handleStationed = (chKey) => {
@@ -2809,11 +2832,43 @@ function App() {
                   <h2>房號: {currentRoomId}</h2>
                   <span>房間密碼:</span>
                   <div className="v9-pwd-area">
-                    <div className="v9-pwd-box">{currentRoom.password}</div>
-                    <button className="btn-v9-copy" onClick={() => {
-                      navigator.clipboard.writeText(currentRoom.password || '');
-                      alert('密碼已複製！');
-                    }}>複製</button>
+                    {isConductor && isEditingPassword ? (
+                      <div className="v9-pwd-edit-box">
+                        <input
+                          type="text"
+                          className="v9-pwd-input-field"
+                          value={newPasswordInput}
+                          placeholder="新密碼"
+                          onChange={e => setNewPasswordInput(e.target.value)}
+                          onKeyPress={e => e.key === 'Enter' && updateRoomPassword()}
+                          autoFocus
+                        />
+                        <button className="btn-v9-confirm" onClick={updateRoomPassword}>儲存</button>
+                        <button className="btn-v9-cancel" onClick={() => setIsEditingPassword(false)}>取消</button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="v9-pwd-box">
+                          {currentRoom.password}
+                        </div>
+                        {isConductor && (
+                          <button
+                            className="btn-v9-edit-pwd"
+                            title="修改密碼"
+                            onClick={() => {
+                              setNewPasswordInput(currentRoom.password || '');
+                              setIsEditingPassword(true);
+                            }}
+                          >
+                            ✏️
+                          </button>
+                        )}
+                        <button className="btn-v9-copy" onClick={() => {
+                          navigator.clipboard.writeText(currentRoom.password || '');
+                          alert('密碼已複製！');
+                        }}>複製</button>
+                      </>
+                    )}
                   </div>
                 </div>
 
