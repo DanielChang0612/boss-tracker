@@ -173,6 +173,8 @@ function App() {
   const [lastSummariesUpdate, setLastSummariesUpdate] = useState(null); // 上次刷新時間
   const [isTabActive, setIsTabActive] = useState(true); // 頁面是否在前景 (v3.3)
   const [selectedMedal, setSelectedMedal] = useState(null); // 當前點選查看的勳章 (v4.4)
+  const [showMobileHud, setShowMobileHud] = useState(false);
+  const [showMobileNav, setShowMobileNav] = useState(false);
 
   // --- 把愛傳下去相關狀態 (v13.0) ---
   const [showLoveModal, setShowLoveModal] = useState(false);
@@ -1694,11 +1696,11 @@ function App() {
                   {roomList.map(r => {
                     return (
                       <tr key={r.id}>
-                        <td className="admin-room-id">#{r.id}</td>
-                        <td className="admin-boss-name">{BOSSES[r.bossId]?.name || r.bossId}</td>
-                        <td className="admin-room-pwd code-font">{r.password}</td>
-                        <td className="admin-conductor">{r.conductor}</td>
-                        <td className="admin-members">
+                        <td data-label="房號" className="admin-room-id">#{r.id}</td>
+                        <td data-label="Boss" className="admin-boss-name">{BOSSES[r.bossId]?.name || r.bossId}</td>
+                        <td data-label="密碼" className="admin-room-pwd code-font">{r.password}</td>
+                        <td data-label="車長" className="admin-conductor">{r.conductor}</td>
+                        <td data-label="當前成員 / 管理" className="admin-members">
                           <div className="admin-member-tags">
                             {(r.memberNames || []).map(m => {
                               const isCond = r.conductor === m;
@@ -1729,7 +1731,7 @@ function App() {
                             {(!r.memberNames || r.memberNames.length === 0) && <span className="no-members">尚無成員</span>}
                           </div>
                         </td>
-                        <td>
+                        <td data-label="操作">
                           <button className="admin-btn-view" onClick={() => { setCurrentRoomId(r.id); setView('join'); }}>查看</button>
                           <button className="admin-btn-delete" onClick={() => adminDeleteRoom(r.id)}>解散</button>
                         </td>
@@ -1819,10 +1821,10 @@ function App() {
                             .filter(u => (u.nickname || u.displayName || '').includes(adminUserSearchTerm) || u.uid.includes(adminUserSearchTerm))
                             .map(u => (
                               <tr key={u.uid}>
-                                <td className="admin-uid code-font" style={{ wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px' }}>{u.uid}</td>
-                                <td className="admin-nickname">{u.nickname || u.displayName}</td>
-                                <td className="admin-kills">{u.totalKills || 0}</td>
-                                <td>{(u.totalHours || 0).toFixed(1)} h</td>
+                                <td data-label="完整 UID" className="admin-uid code-font" style={{ wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px' }}>{u.uid}</td>
+                                <td data-label="暱稱" className="admin-nickname">{u.nickname || u.displayName}</td>
+                                <td data-label="總擊殺" className="admin-kills">{u.totalKills || 0}</td>
+                                <td data-label="總打王時間">{(u.totalHours || 0).toFixed(1)} h</td>
                               </tr>
                             ))}
                         </tbody>
@@ -1837,16 +1839,16 @@ function App() {
                               const rInfo = getRoleInfo(u.uid);
                               return (
                                 <tr key={u.uid}>
-                                  <td className="admin-user-cell">
+                                  <td data-label="成員" className="admin-user-cell">
                                     {renderAvatar(u.photoURL, "admin-mini-avatar")}
                                     <span>{u.nickname || u.displayName}</span>
                                   </td>
-                                  <td className="admin-uid code-font" style={{ wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px' }}>{u.uid}</td>
-                                  <td>
+                                  <td data-label="完整 UID" className="admin-uid code-font" style={{ wordBreak: 'break-all', maxWidth: '200px', fontSize: '10px' }}>{u.uid}</td>
+                                  <td data-label="身份與說明">
                                     <div style={{ color: rInfo.color, fontWeight: 'bold' }}>{rInfo.role}</div>
                                     <div style={{ fontSize: '10px', opacity: 0.7, marginTop: '2px' }}>{rInfo.desc}</div>
                                   </td>
-                                  <td>
+                                  <td data-label="狀態">
                                     {u.status === 'rejected' ? (
                                       <span style={{ color: '#ff4444', fontWeight: 'bold' }}>🔴 已停權</span>
                                     ) : (
@@ -1856,9 +1858,9 @@ function App() {
                                       </>
                                     )}
                                   </td>
-                                  <td className="location-text">{getUserCurrentLocation(u.nickname || u.displayName)}</td>
-                                  <td className="date-text">{u.createdAt ? new Date(u.createdAt).toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '早期成員'}</td>
-                                  <td>
+                                  <td data-label="位置" className="location-text">{getUserCurrentLocation(u.nickname || u.displayName)}</td>
+                                  <td data-label="加入日期" className="date-text">{u.createdAt ? new Date(u.createdAt).toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '早期成員'}</td>
+                                  <td data-label="管理維護">
                                     {/* 允許 Pika 重置自己的數據 (v6.4) */}
                                     {(u.uid !== PIKA_UID || currentUser.uid === PIKA_UID) && (
                                       <button className="btn-danger btn-micro" onClick={() => adminResetUserStats(u.uid)}>重置</button>
@@ -2088,10 +2090,10 @@ function App() {
               {/* --- 豪豪 (MY TACTICAL STATS) 置頂 Hero Row (v8.0) --- */}
               {currentUser && (
                 <tr className="v9-row v9-row-hero">
-                  <td className="col-rank" style={{ textAlign: 'center' }}>
+                  <td data-label="排名" className="col-rank" style={{ textAlign: 'center' }}>
                     <span className="hero-badge">MY STATS</span>
                   </td>
-                  <td className="col-member">
+                  <td data-label="成員" className="col-member">
                     <div className="admin-user-cell" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                       {renderAvatar(currentUser.profile?.photoURL, "admin-mini-avatar", { width: '36px', height: '36px', border: '2px solid var(--gold)' })}
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -2100,7 +2102,7 @@ function App() {
                       </div>
                     </div>
                   </td>
-                  <td className="col-value highlight-num" style={{ textAlign: 'right' }}>
+                  <td data-label="戰績" className="col-value highlight-num" style={{ textAlign: 'right' }}>
                     {isKills ? (currentUser.profile?.totalKills || 0) : (currentUser.profile?.totalHours || 0).toFixed(1)}
                   </td>
                 </tr>
@@ -2404,7 +2406,10 @@ function App() {
             </header>
             <section className="lobby-controls">
               <div className="boss-selector-v105">
-                <label className="hud-label">BOSS 選擇：</label>
+                <div className="boss-selector-header">
+                  <label className="hud-label">🎯 作戰目標切換</label>
+                  <span className="selected-area-hint">{BOSSES[selectedBossId]?.area}</span>
+                </div>
                 <div className="v105-boss-grid">
                   {Object.entries(BOSSES).map(([id, boss]) => (
                     <div
@@ -2570,9 +2575,41 @@ function App() {
         const efficiency = sessionDurationHrs > 0 ? (sessionKills / sessionDurationHrs).toFixed(1) : '0.0';
 
         return (
-          <div className={`room-container-v25 boss-theme-${currentRoom.bossId} fade-in`}>
+          <div className={`room-container-v25 boss-theme-${currentRoom.bossId} fade-in ${showMobileHud ? 'hud-open' : 'hud-closed'}`}>
             {/* --- V9.0 SIDEBAR: 4 MODULES --- */}
             <aside className="v25-sidebar">
+              <div className="mobile-hud-header">
+                <h3>戰術分析儀表板 (HUD)</h3>
+                <button className="hud-close-btn" onClick={() => setShowMobileHud(false)}>收起 ×</button>
+              </div>
+
+              <div className="hud-card controls-segment mobile-only">
+                <span className="hud-label">房間管理指令</span>
+                <div className="v9-sidebar-controls">
+                  {isConductor && (
+                    <button className="btn-v9-sidebar pink" onClick={handleSpreadLoveClick}>
+                      <span className="icon">💖</span> 把愛傳下去
+                    </button>
+                  )}
+                  <button className="btn-v9-sidebar grey" onClick={() => setShowVoiceSettings(true)}>
+                    <span className="icon">⚙️</span> 語音設定
+                  </button>
+                  <button className="btn-v9-sidebar yellow" onClick={() => {
+                    const shareUrl = `${window.location.origin}${window.location.pathname}#${currentRoomId}`;
+                    navigator.clipboard.writeText(shareUrl);
+                    alert('房號連結已複製 (含自動夾帶房號)！');
+                  }}>
+                    分享房間連結
+                  </button>
+                  <button className="btn-v9-sidebar red" onClick={() => setShowLeaveModal(true)}>
+                    下車離開 (返回大廳)
+                  </button>
+                  <button className="btn-v9-sidebar white" onClick={toggleWildBossExplore}>
+                    <span className="icon">🍖</span> {currentRoom.wildBossExplore?.[userName] ? '回到房內打王' : '餓了去打野'}
+                  </button>
+                </div>
+              </div>
+
               {/* Box 1: Identity */}
               <div className="hud-card active-segment">
                 <span className="hud-label">您的身分 :</span>
@@ -2669,17 +2706,33 @@ function App() {
                   </div>
                 </div>
 
-                <div className="v9-control-group">
-                  {isConductor && <button className="btn-v9-pink" onClick={handleSpreadLoveClick}>💖 把愛傳下去</button>}
-                  <button className="btn-v9-grey" onClick={() => setShowVoiceSettings(true)}>⚙️ 語音設定</button>
-                  <button className="btn-v9-yellow" onClick={() => {
+                <div className="v9-control-group desktop-only">
+                  {isConductor && (
+                    <button className="btn-v9-action pink" onClick={handleSpreadLoveClick}>
+                      <span className="icon">💖</span> 把愛傳下去
+                    </button>
+                  )}
+                  <button className="btn-v9-action grey" onClick={() => setShowVoiceSettings(true)}>
+                    <span className="icon">⚙️</span> 語音設定
+                  </button>
+                  <button className="btn-v9-action yellow" onClick={() => {
                     const shareUrl = `${window.location.origin}${window.location.pathname}#${currentRoomId}`;
                     navigator.clipboard.writeText(shareUrl);
                     alert('房號連結已複製 (含自動夾帶房號)！');
-                  }}>分享房間連結</button>
-                  <button className="btn-v9-red" onClick={() => setShowLeaveModal(true)}>下車離開 (返回大廳)</button>
-                  <button className="btn-v9-orange" onClick={toggleWildBossExplore}>
-                    {currentRoom.wildBossExplore?.[userName] ? '🍖 取消打野' : '🍖 餓了去打野'}
+                  }}>
+                    分享房間連結
+                  </button>
+                  <button className="btn-v9-action red" onClick={() => setShowLeaveModal(true)}>
+                    下車離開 (返回大廳)
+                  </button>
+                  <button className="btn-v9-action white" onClick={toggleWildBossExplore}>
+                    <span className="icon">🍖</span> {currentRoom.wildBossExplore?.[userName] ? '回到房內打王' : '餓了去打野'}
+                  </button>
+                </div>
+
+                <div className="v9-control-group mobile-only">
+                  <button className={`btn-v16-hud-toggle ${showMobileHud ? 'active' : ''}`} onClick={() => setShowMobileHud(!showMobileHud)}>
+                    {showMobileHud ? '📊 關閉數據面板' : '📊 戰略數據面板'}
                   </button>
                 </div>
               </header>
@@ -2858,9 +2911,19 @@ function App() {
         </div>
       )}
       <header className="global-header">
-        <div className="header-logo" onClick={() => (currentUser ? setView('lobby') : setView('landing'))}>
-          <span>PiKaPi</span> <span className="boss-highlight">BOSS</span> Tracker
+        <div className="header-left">
+          {currentUser && (
+            <button className="mobile-nav-toggle" onClick={() => setShowMobileNav(!showMobileNav)}>
+              <span className="hamburger-line"></span>
+              <span className="hamburger-line"></span>
+              <span className="hamburger-line"></span>
+            </button>
+          )}
+          <div className="header-logo" onClick={() => (currentUser ? setView('lobby') : setView('landing'))}>
+            <span>PiKaPi</span> <span className="boss-highlight">BOSS</span> Tracker
+          </div>
         </div>
+
         {!currentUser ? (
           <div className="header-actions">
             <button className="login-btn-small" onClick={handleLogin}>
@@ -2869,33 +2932,81 @@ function App() {
             </button>
           </div>
         ) : (
-          <div className="user-profile-menu header-actions">
-            <button
-              className={`leaderboard-hall-btn ${view === 'leaderboard' ? 'active' : ''}`}
-              onClick={() => setView('leaderboard')}
-            >
-              🏆 榮譽榜
-            </button>
-            <button
-              className={`medal-hall-btn ${view === 'medals' ? 'active' : ''}`}
-              onClick={() => setView('medals')}
-            >
-              🎖️ 勳章總覽
-            </button>
-            {isAdmin && (
+          <>
+            <div className="desktop-nav header-actions">
               <button
-                className={`admin-entry-btn ${view === 'admin' ? 'active' : ''}`}
-                onClick={() => setView('admin')}
+                className={`leaderboard-hall-btn ${view === 'leaderboard' ? 'active' : ''}`}
+                onClick={() => setView('leaderboard')}
               >
-                🛡️ 指揮部
+                🏆 榮譽榜
               </button>
-            )}
-            <span className="user-greeting">Hi, {userName}</span>
-            <div className="header-avatar-v9" onClick={() => setView('profile')}>
-              {renderAvatar(currentUser.photoURL, "header-avatar-img", { width: '100%', height: '100%' })}
+              <button
+                className={`medal-hall-btn ${view === 'medals' ? 'active' : ''}`}
+                onClick={() => setView('medals')}
+              >
+                🎖️ 勳章總覽
+              </button>
+              {isAdmin && (
+                <button
+                  className={`admin-entry-btn ${view === 'admin' ? 'active' : ''}`}
+                  onClick={() => setView('admin')}
+                >
+                  🛡️ 指揮部
+                </button>
+              )}
+              <span className="user-greeting">Hi, {userName}</span>
+              <div className="header-avatar-v9" onClick={() => setView('profile')}>
+                {renderAvatar(currentUser.photoURL, "header-avatar-img", { width: '100%', height: '100%' })}
+              </div>
+              <button className="btn-danger logout-btn" onClick={handleLogout}>登出</button>
             </div>
-            <button className="btn-danger logout-btn" onClick={handleLogout}>登出</button>
-          </div>
+
+            {/* Mobile Nav Drawer */}
+            <div className={`mobile-nav-drawer ${showMobileNav ? 'open' : ''}`}>
+              <div className="nav-drawer-header">
+                <div className="nav-user-info">
+                  <div className="nav-avatar">
+                   {renderAvatar(currentUser.photoURL, "nav-avatar-img")}
+                  </div>
+                  <div className="nav-user-details">
+                    <span className="nav-user-name">{userName}</span>
+                    <span className="nav-user-email">{currentUser.email}</span>
+                  </div>
+                </div>
+                <button className="nav-close-btn" onClick={() => setShowMobileNav(false)}>×</button>
+              </div>
+              
+              <div className="nav-drawer-links">
+                <button className={`nav-link ${view === 'lobby' ? 'active' : ''}`} onClick={() => { setView('lobby'); setShowMobileNav(false); }}>
+                  🏠 返回大廳
+                </button>
+                <button className={`nav-link ${view === 'profile' ? 'active' : ''}`} onClick={() => { setView('profile'); setShowMobileNav(false); }}>
+                  👤 個人檔案
+                </button>
+                <button className={`nav-link ${view === 'leaderboard' ? 'active' : ''}`} onClick={() => { setView('leaderboard'); setShowMobileNav(false); }}>
+                  🏆 榮譽排行榜
+                </button>
+                <button className={`nav-link ${view === 'medals' ? 'active' : ''}`} onClick={() => { setView('medals'); setShowMobileNav(false); }}>
+                  🎖️ 勳章成就館
+                </button>
+                {isAdmin && (
+                  <button className={`nav-link admin ${view === 'admin' ? 'active' : ''}`} onClick={() => { setView('admin'); setShowMobileNav(false); }}>
+                    🛡️ 指揮部管理員
+                  </button>
+                )}
+                <div className="nav-divider"></div>
+                <button className="nav-link logout" onClick={() => { handleLogout(); setShowMobileNav(false); }}>
+                  🚪 安全登出
+                </button>
+              </div>
+            </div>
+            {showMobileNav && <div className="nav-overlay" onClick={() => setShowMobileNav(false)}></div>}
+            
+            {/* Mobile-only avatar shortcut in header */}
+            <div className="mobile-user-shortcut" onClick={() => setView('profile')}>
+               {renderAvatar(currentUser.photoURL, "header-avatar-img-mobile")}
+            </div>
+          </>
         )}
       </header>
       <main className="main-content-area">{renderContent()}</main>
