@@ -32,7 +32,7 @@ const BOSSES = {
   test: { name: "測試王", time: 0.25, area: "開發者地圖", color: "#607d8b" }
 };
 
-const ROOM_AUTO_DELETE_MS = 2 * 60 * 60 * 1000; // 2 小時
+const ROOM_AUTO_DELETE_MS = 2 * 60 * 60 * 1000; // 恢復為 2 小時戰略緩衝
 const ADMIN_UID = 'OFJlOe2XIXWfihSrJu49MzHKLgv1'; // 其他管理員的 UID
 const PIKA_UID = 'dVqiQcpgNqR5xgHZbeGjsncgHeN2'; // 最高指揮官不可被刪除或操作
 
@@ -139,6 +139,7 @@ function App() {
   const [now, setNow] = useState(Date.now());
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
   const [availableVoices, setAvailableVoices] = useState([]);
+  const [serverOffset, setServerOffset] = useState(0); // V16.7: 伺服器時間偏移對齊
   const [voiceSettings, setVoiceSettings] = useState(() => {
     const saved = localStorage.getItem('pikapi_voice_settings');
     // 預設優選配置 (v15.8): 語速稍微加快一點點比較好聽
@@ -516,19 +517,26 @@ function App() {
     try {
       const now = Date.now();
       const currentMonth = new Date(now).toISOString().slice(0, 7);
-      const commonPath_AT_K = `rankings/${currentMonth}/allTime/${uid}`;
-      const commonPath_AT_H = `rankings/${currentMonth}/allTimeHours/${uid}`;
       const updates = {};
 
+      // 1. 同步至總榜 (All-Time)
       if (deltaKills > 0) {
-        updates[`${commonPath_AT_K}/v`] = increment(deltaKills);
-        updates[`${commonPath_AT_K}/n`] = name;
-        updates[`${commonPath_AT_K}/p`] = photoURL;
+        updates[`rankings/allTime/kills/${uid}/v`] = increment(deltaKills);
+        updates[`rankings/allTime/kills/${uid}/n`] = name;
+        updates[`rankings/allTime/kills/${uid}/p`] = photoURL;
+        // 同步至月榜
+        updates[`rankings/monthly/${currentMonth}/kills/${uid}/v`] = increment(deltaKills);
+        updates[`rankings/monthly/${currentMonth}/kills/${uid}/n`] = name;
+        updates[`rankings/monthly/${currentMonth}/kills/${uid}/p`] = photoURL;
       }
       if (deltaHours > 0) {
-        updates[`${commonPath_AT_H}/v`] = increment(deltaHours);
-        updates[`${commonPath_AT_H}/n`] = name;
-        updates[`${commonPath_AT_H}/p`] = photoURL;
+        updates[`rankings/allTime/hours/${uid}/v`] = increment(deltaHours);
+        updates[`rankings/allTime/hours/${uid}/n`] = name;
+        updates[`rankings/allTime/hours/${uid}/p`] = photoURL;
+        // 同步至月榜
+        updates[`rankings/monthly/${currentMonth}/hours/${uid}/v`] = increment(deltaHours);
+        updates[`rankings/monthly/${currentMonth}/hours/${uid}/n`] = name;
+        updates[`rankings/monthly/${currentMonth}/hours/${uid}/p`] = photoURL;
       }
 
       updates[`rankings/meta/availableMonths/${currentMonth}`] = true;
@@ -709,6 +717,19 @@ function App() {
     });
     return () => unsubscribe();
   }, [currentRoomId, userName, view, isTabActive]);
+
+  // V16.7: 全球戰時授時系統 (Server Time Synchronization)
+  useEffect(() => {
+    const offsetRef = ref(db, ".info/serverTimeOffset");
+    const unsubscribe = onValue(offsetRef, (snap) => {
+      const offset = snap.val() || 0;
+      setServerOffset(offset);
+      console.log(`[戰時授時] 伺服器時間偏移量: ${offset}ms`);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const getSyncedTime = () => Date.now() + serverOffset;
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -916,9 +937,9 @@ function App() {
 
   // --- 定時器與初始化輔助 (v13.5) ---
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
+    const timer = setInterval(() => setNow(Date.now() + serverOffset), 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [serverOffset]);
 
   // 斷線/刷新後，自動從資料庫恢復隨車計時 (Stick Session Restore)
   useEffect(() => {
@@ -956,26 +977,41 @@ function App() {
 
   useEffect(() => {
     const cleanup = () => {
-      Object.keys(rooms || {}).forEach(id => {
-        const room = rooms[id];
-        const rawMembers = room.members || {};
-        const members = Array.isArray(rawMembers) ? rawMembers : Object.keys(rawMembers);
+      // V16.4: 全域自動清理升級 - 同時檢索已進入房間與大廳摘要
+      const allTrackedIds = new Set([
+        ...Object.keys(rooms || {}),
+        ...Object.keys(roomSummaries || {})
+      ]);
 
-        if (members.length === 0 && !room.emptySince) {
-          update(ref(db, `rooms/${id}`), { emptySince: Date.now() });
+      const updates = {};
+      allTrackedIds.forEach(id => {
+        const room = rooms[id] || roomSummaries[id];
+        if (!room) return;
+
+        const rawMembers = room.members || room.memberNames || {};
+        const memberCount = Array.isArray(rawMembers) ? rawMembers.length : Object.keys(rawMembers).length;
+
+        // 補漏機制：如果偵測到空房卻沒標記時間，立刻啟動倒數
+        if (memberCount === 0 && !room.emptySince) {
+          const now = Date.now();
+          updates[`rooms/${id}/emptySince`] = now;
+          updates[`roomSummaries/${id}/emptySince`] = now;
         }
 
+        // 判定銷毀：倒數歸零
         if (room.emptySince && (Date.now() - room.emptySince > ROOM_AUTO_DELETE_MS)) {
-          update(ref(db), {
-            [`rooms/${id}`]: null,
-            [`roomSummaries/${id}`]: null
-          });
+          updates[`rooms/${id}`] = null;
+          updates[`roomSummaries/${id}`] = null;
         }
       });
+
+      if (Object.keys(updates).length > 0) {
+        update(ref(db), updates);
+      }
     };
-    const interval = setInterval(cleanup, 60000);
+    const interval = setInterval(cleanup, 30000); // 加密偵測頻率至 30s
     return () => clearInterval(interval);
-  }, [rooms]);
+  }, [rooms, roomSummaries]);
 
   useEffect(() => {
     // V11.5 FIX: Presence should stay active globally for the room, not just in view === 'room'.
@@ -1086,6 +1122,7 @@ function App() {
     const conductor = userName; // 直接使用系統名稱 (v2.2)
     if (!conductor.trim()) return alert("請至 Profile 設定您的名稱");
     const id = Math.random().toString(36).substr(2, 6).toUpperCase();
+    const nowSynced = getSyncedTime();
     const newRoom = {
       id,
       bossId: selectedBossId,
@@ -1093,7 +1130,7 @@ function App() {
       conductor,
       members: {
         [userName]: {
-          joinedAt: Date.now(),
+          joinedAt: nowSynced,
           startKills: 0,
           totalKills: currentUser.profile?.totalKills || 0, // 初始帶入總擊殺 (v12.7)
           photoURL: currentUser.profile?.photoURL || '🐶',
@@ -1102,7 +1139,7 @@ function App() {
       },
       records: {},
       totalKills: 0,
-      createdAt: Date.now()
+      createdAt: nowSynced
     };
 
     // 同步寫入摘要，讓大廳監聽與管理者後台超省流量 (v15.2: 補上密碼字段供管理用)
@@ -1112,7 +1149,7 @@ function App() {
       password: newRoom.password, // v15.2 Patch: Admin can see pwd in summary
       conductor,
       totalKills: 0,
-      createdAt: Date.now(),
+      createdAt: nowSynced,
       onlineCount: 1,
       memberNames: [conductor]
     };
@@ -1126,7 +1163,7 @@ function App() {
       setLastJoinedRoomId(id); // 標記為正式進入 (v12.5)
       localStorage.setItem('pikapi_last_room', id);
       setView('room');
-      setSessionStartTime(Date.now());
+      setSessionStartTime(nowSynced);
       setSessionKills(0);
     });
   };
@@ -1138,6 +1175,7 @@ function App() {
 
     const room = snapshot.val();
     const membersList = Object.keys(room.members || {});
+    const nowSynced = getSyncedTime();
 
     // 如果不是原本就在裡面，且人數已滿 4 人，不給進
     if (!membersList.includes(userName) && membersList.length >= 4) {
@@ -1148,7 +1186,7 @@ function App() {
 
     await update(ref(db, `rooms/${currentRoomId}/members`), {
       [userName]: {
-        joinedAt: Date.now(),
+        joinedAt: nowSynced,
         startKills: room.totalKills || 0,
         totalKills: currentUser.profile?.totalKills || 0, // 加入時同步階級數據 (v12.7)
         photoURL: currentUser.profile?.photoURL || '🐶', // 同步頭像 (v2.3)
@@ -1159,7 +1197,7 @@ function App() {
     setLastJoinedRoomId(currentRoomId);
     localStorage.setItem('pikapi_last_room', currentRoomId);
     setView('room');
-    setSessionStartTime(Date.now()); // 開始計時
+    setSessionStartTime(nowSynced); // 開始計時
     window.history.pushState({}, '', `#${currentRoomId}`);
     setPasswordInput('');
   };
@@ -1175,7 +1213,8 @@ function App() {
     if (room && currentUser) {
       // 結算站崗時間
       if (sessionStartTime) {
-        const delta = (Date.now() - sessionStartTime) / (1000 * 60 * 60); // 小時
+        const nowSynced = getSyncedTime();
+        const delta = (nowSynced - sessionStartTime) / (1000 * 60 * 60); // 小時
         const userRef = ref(db, `users/${currentUser.uid}`);
         const bossId = room.bossId;
 
@@ -1268,8 +1307,10 @@ function App() {
   const addRecord = (manualChKey) => {
     const chKey = manualChKey || `CH ${inputChannel.trim()}`;
     if (!manualChKey && !inputChannel.trim()) return;
+    const nowSynced = getSyncedTime();
+
     update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), {
-      lastKill: Date.now(),
+      lastKill: nowSynced,
       reporter: userName,
       occupant: null
     });
@@ -1293,7 +1334,7 @@ function App() {
           bossId,
           bossName: currentBoss.name,
           ch: chKey,
-          at: Date.now()
+          at: nowSynced
         };
         const recent = data.recentActivity || [];
         const updatedRecent = [newActivity, ...recent].slice(0, 5);
@@ -1328,7 +1369,8 @@ function App() {
   };
 
   const markAsReady = (chKey) => {
-    const readyTime = Date.now() - (currentBoss.time * 60 * 1000);
+    const nowSynced = getSyncedTime();
+    const readyTime = nowSynced - (currentBoss.time * 60 * 1000);
     update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), {
       lastKill: readyTime,
       reporter: userName,
@@ -1409,25 +1451,30 @@ function App() {
     const { fromId, fromConductor, channels, mode } = incomingLoveRequest;
 
     const updates = {};
-    // 1. 搬家頻道資料
+    // 1. 搬家頻道資料 (整合進 updates 原子操作)
     Object.entries(channels || {}).forEach(([ch, data]) => {
       updates[`rooms/${currentRoomId}/records/${ch}`] = data;
-      updates[`rooms/${fromId}/records/${ch}`] = null;
+      // V16.4 FIX: 如果不是全毀模式，才需要手動設 null；全毀模式會直接刪除整間房
+      if (mode !== 'all') {
+        updates[`rooms/${fromId}/records/${ch}`] = null;
+      }
     });
 
-    // 2. 語音連動
+    // 2. 語音連動 (本地端)
     updates[`rooms/${currentRoomId}/voiceAlert`] = { message: `成功接受來自 ${fromConductor} 房主的愛`, ts: Date.now(), sender: userName };
-    updates[`rooms/${fromId}/voiceAlert`] = { message: `${userName} 房主已經接受你們的愛`, ts: Date.now(), sender: userName };
 
-    // 3. 處理終結邏輯
+    // 3. 處理終結邏輯與清除這筆愛
     if (mode === 'all') {
-      // 若全部轉移，銷毀傳送房 (利用 Firebase 結構刪除會自動讓成員彈出)
-      remove(ref(db, `rooms/${fromId}`));
-      remove(ref(db, `roomSummaries/${fromId}`));
+      // V16.4 FIX: 採用原子化刪除，防止 addRecord 或語音訊息在下一行導致房間「復活」
+      updates[`rooms/${fromId}`] = null;
+      updates[`roomSummaries/${fromId}`] = null;
+    } else {
+      // 僅在房間未毀滅時才發送對面語音
+      updates[`rooms/${fromId}/voiceAlert`] = { message: `${userName} 房主已經接受你們的愛`, ts: Date.now(), sender: userName };
+      updates[`rooms/${currentRoomId}/loveRequest`] = null;
     }
 
-    // 4. 清除這筆愛
-    updates[`rooms/${currentRoomId}/loveRequest`] = null;
+    // 4. 一次性提交，確保不會發生 race condition
     await update(ref(db), updates);
     setIncomingLoveRequest(null);
   };
@@ -1612,6 +1659,42 @@ function App() {
     } catch (e) {
       console.error("[Reset Error]", e);
       alert("❌ 重置失敗");
+    }
+  };
+
+  const adminForceSyncRankings = async () => {
+    if (!window.confirm("⚠️ 確定要【重構全站排行榜】嗎？這會從所有個人的最原始數據中提取戰績。")) return;
+    setIsUsersLoading(true);
+    try {
+      const snap = await get(ref(db, 'users'));
+      if (snap.exists()) {
+        const users = snap.val();
+        const updates = {};
+        const currentMonth = getYearMonth();
+
+        Object.entries(users).forEach(([uid, uData]) => {
+          const name = uData.nickname || uData.displayName || '未知英雄';
+          const kills = uData.totalKills || 0;
+          const hours = uData.totalHours || 0;
+          const photo = uData.photoURL || '🐶';
+
+          if (kills > 0) {
+            updates[`rankings/allTime/kills/${uid}`] = { v: kills, n: name, p: photo };
+            updates[`rankings/monthly/${currentMonth}/kills/${uid}`] = { v: kills, n: name, p: photo };
+          }
+          if (hours > 0) {
+            updates[`rankings/allTime/hours/${uid}`] = { v: hours, n: name, p: photo };
+            updates[`rankings/monthly/${currentMonth}/hours/${uid}`] = { v: hours, n: name, p: photo };
+          }
+        });
+
+        await update(ref(db), updates);
+        alert("✅ 全站排行榜重構校準成功！");
+      }
+    } catch (err) {
+      alert("❌ 數據重啟失敗: " + err.message);
+    } finally {
+      setIsUsersLoading(false);
     }
   };
 
@@ -1810,6 +1893,16 @@ function App() {
                     <button className="btn-v9-grey" onClick={fetchAllUsers} style={{ marginLeft: '10px' }} disabled={isUsersLoading}>
                       {isUsersLoading ? '刷新中...' : '🔄 重新整理'}
                     </button>
+                    {isAdmin && (
+                      <button 
+                        className="btn-v9-report" 
+                        onClick={adminForceSyncRankings} 
+                        style={{ marginLeft: '10px', background: 'var(--pink-glow)', boxShadow: '0 0 10px var(--pink-glow)' }}
+                        disabled={isUsersLoading}
+                      >
+                         ⚡️ 戰略修復：重構排行榜
+                      </button>
+                    )}
                   </div>
 
                   <div className="admin-table-wrapper">
