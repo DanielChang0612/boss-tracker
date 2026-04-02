@@ -144,11 +144,67 @@ function App() {
   const [exploreChannelInput, setExploreChannelInput] = useState(''); // V16.8: 打野偵察輸入
   const [isEditingPassword, setIsEditingPassword] = useState(false); // V16.9: 修改密碼模式
   const [newPasswordInput, setNewPasswordInput] = useState(''); // V16.9: 新密碼輸入
+  const lastProcessedMsg = useRef(''); // V16.8.4: 防止重複語音
+  
+  // V17.5: 啟動時預先喚醒語音引擎
+  useEffect(() => {
+    window.speechSynthesis.resume();
+  }, []);
+
   const [voiceSettings, setVoiceSettings] = useState(() => {
     const saved = localStorage.getItem('pikapi_voice_settings');
     // 預設優選配置 (v15.8): 語速稍微加快一點點比較好聽
     return saved ? JSON.parse(saved) : { voiceURI: '', rate: 1.1, pitch: 1 };
   });
+
+  const voiceSettingsRef = useRef(voiceSettings);
+  useEffect(() => { voiceSettingsRef.current = voiceSettings; }, [voiceSettings]);
+  const availableVoicesRef = useRef(availableVoices);
+  useEffect(() => { availableVoicesRef.current = availableVoices; }, [availableVoices]);
+
+  // V17.2: 語音佇列排隊系統
+  const speechQueue = useRef([]);
+  const isSpeaking = useRef(false);
+
+  const processSpeechQueue = () => {
+    if (isSpeaking.current || speechQueue.current.length === 0) return;
+    
+    isSpeaking.current = true;
+    const text = speechQueue.current.shift();
+    console.log(`[語音序列] 準備播放: "${text}"，剩餘佇列: ${speechQueue.current.length}`);
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const vSet = voiceSettingsRef.current;
+    const vAvail = availableVoicesRef.current;
+    const selectedVoice = vAvail.find(v => v.voiceURI === vSet.voiceURI);
+    
+    if (selectedVoice) utterance.voice = selectedVoice;
+    utterance.rate = vSet.rate;
+    utterance.pitch = vSet.pitch;
+    utterance.lang = 'zh-TW';
+
+    utterance.onstart = () => { 
+      console.log(`[語音序列] 正式開始唸: "${text}"`);
+    };
+    utterance.onend = () => { 
+      console.log(`[語音序列] 唸完囉: "${text}"`);
+      isSpeaking.current = false;
+      setTimeout(processSpeechQueue, 200); 
+    };
+    utterance.onerror = (e) => { 
+      console.error(`[語音序列] 發生非預期中斷(${e.error})`, e);
+      isSpeaking.current = false;
+      
+      // V17.5: 若被插斷，代表引擎不穩，給予更長的緩衝期 (1秒)
+      const delay = e.error === 'interrupted' ? 1000 : 200;
+      setTimeout(processSpeechQueue, delay);
+    };
+
+    // V17.5: 這是 Chrome 的救命草，強制喚醒引擎
+    window.speechSynthesis.resume();
+    window._pikapi_latest = utterance;
+    window.speechSynthesis.speak(utterance);
+  };
 
   // V16.0: 戰術性多會話鎖定機制 (Session Lock)
   const currentSessionId = useRef(Math.random().toString(36).slice(2)).current;
@@ -211,7 +267,6 @@ function App() {
       const dbSessId = snap.val();
       if (dbSessId && dbSessId !== currentSessionId) {
         setIsKickedByOtherDevice(true);
-        window.speechSynthesis.cancel();
       }
     });
 
@@ -457,26 +512,28 @@ function App() {
     return () => clearInterval(presenceInterval);
   }, [currentRoomId, userName, isTabActive]);
 
-  // 2.1 語音專用監聽器 (全天候開啟，含背景 v3.5)
+  // 2.1 語音監聽器 (V17.6: 前景分頁守衛版)
   useEffect(() => {
     if (!currentRoomId || view !== 'room') return;
-
-    // 專門監聽語音節點，體積極小，確保在後台也能通報
     const alertRef = ref(db, `rooms/${currentRoomId}/voiceAlert`);
-    return onValue(alertRef, (snapshot) => {
+    const unsubscribe = onValue(alertRef, (snapshot) => {
+      // V17.6: 只有前景分頁可以開口，防止多個分頁同時搶麥克風導致 interrupted
+      if (!isTabActive) return; 
+
       const alert = snapshot.val();
       if (alert && alert.ts > lastAlertTs.current) {
+        if (alert.message === lastProcessedMsg.current && (alert.ts - lastAlertTs.current) < 2000) return;
+
         lastAlertTs.current = alert.ts;
-        const utterance = new SpeechSynthesisUtterance(alert.message);
-        const selectedVoice = availableVoices.find(v => v.voiceURI === voiceSettings.voiceURI);
-        if (selectedVoice) utterance.voice = selectedVoice;
-        utterance.rate = voiceSettings.rate;
-        utterance.pitch = voiceSettings.pitch;
-        utterance.lang = 'zh-TW';
-        window.speechSynthesis.speak(utterance);
+        lastProcessedMsg.current = alert.message;
+        
+        // 加入佇列並啟動播放程序
+        speechQueue.current.push(alert.message);
+        processSpeechQueue();
       }
     });
-  }, [currentRoomId, view, voiceSettings, availableVoices]);
+    return () => unsubscribe();
+  }, [currentRoomId, view, isTabActive]);
 
   useEffect(() => {
     localStorage.setItem('pikapi_voice_settings', JSON.stringify(voiceSettings));
@@ -792,6 +849,8 @@ function App() {
         if (currentUser && currentRoomId && sessionStartTime) {
           const delta = (Date.now() - sessionStartTime) / (1000 * 60 * 60);
           const userRef = ref(db, `users/${currentUser.uid}`);
+          // V17.3: 刪除手動 cancel() 以防中斷通報
+          localStorage.removeItem('pikapi_last_room');
           get(userRef).then(snap => {
             const data = snap.val() || {};
             const bossId = rooms[currentRoomId]?.bossId || 'unknown';
@@ -853,21 +912,22 @@ function App() {
   useEffect(() => {
     const broadcastRef = ref(db, 'globalBroadcast');
     const unsubscribe = onValue(broadcastRef, (snap) => {
+      // V17.7: 同樣加入前景守衛碼，防止多分頁廣播打架
+      if (!isTabActive) return;
+
       const data = snap.val();
       if (data && data.ts > Date.now() - 30000) { // 30秒內的公告才顯示
         setGlobalBroadcast(data);
-        // 語音報讀 (TTS)
-        const speech = new SpeechSynthesisUtterance(data.message);
-        speech.lang = 'zh-TW';
-        speech.rate = 0.9;
-        window.speechSynthesis.speak(speech);
+        // 語音報讀 (TTS) - V17.3: 併入大統治序列
+        speechQueue.current.push(data.message);
+        processSpeechQueue();
 
         // 8秒後自動隱藏橫幅
         setTimeout(() => setGlobalBroadcast(null), 8000);
       }
     });
     return () => unsubscribe();
-  }, []); // 移除 isTabActive 限制，大廳也能聽全域公告
+  }, [isTabActive]); // 增加 isTabActive 依賴
 
   // 檢查是否被踢出房間 (已整合至下方 v2.3 機制，此處移除以避免誤判)
 
@@ -969,14 +1029,8 @@ function App() {
   // 已移至 2.1 語音專用監聽器，此處移除以節省流量 (v3.5)
 
   const handleTestVoice = () => {
-    const utterance = new SpeechSynthesisUtterance("PiKaPi 戰略通報測試。");
-    const selectedVoice = availableVoices.find(v => v.voiceURI === voiceSettings.voiceURI);
-    if (selectedVoice) utterance.voice = selectedVoice;
-    utterance.rate = voiceSettings.rate;
-    utterance.pitch = voiceSettings.pitch;
-    utterance.lang = 'zh-TW';
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+    speechQueue.current.push("PiKaPi 戰略通報測試。");
+    processSpeechQueue();
   };
 
   useEffect(() => {
