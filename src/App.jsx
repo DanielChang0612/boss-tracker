@@ -1048,13 +1048,14 @@ function App() {
 
   useEffect(() => {
     const cleanup = () => {
-      // V16.4: 全域自動清理升級 - 同時檢索已進入房間與大廳摘要
       const allTrackedIds = new Set([
         ...Object.keys(rooms || {}),
         ...Object.keys(roomSummaries || {})
       ]);
 
       const updates = {};
+      const nowTs = Date.now();
+
       allTrackedIds.forEach(id => {
         const room = rooms[id] || roomSummaries[id];
         if (!room) return;
@@ -1062,15 +1063,22 @@ function App() {
         const rawMembers = room.members || room.memberNames || {};
         const memberCount = Array.isArray(rawMembers) ? rawMembers.length : Object.keys(rawMembers).length;
 
-        // 補漏機制：如果偵測到空房卻沒標記時間，立刻啟動倒數
-        if (memberCount === 0 && !room.emptySince) {
-          const now = Date.now();
-          updates[`rooms/${id}/emptySince`] = now;
-          updates[`roomSummaries/${id}/emptySince`] = now;
+        // V17.8 FIX: 如果房間內有人，必須強制清除 emptySince 標記，防止「幽靈計時器」在 2 小時後誤刪活房
+        if (memberCount > 0 && room.emptySince) {
+          updates[`rooms/${id}/emptySince`] = null;
+          updates[`roomSummaries/${id}/emptySince`] = null;
+          return; // 既然有人，這輪就不再檢查刪除
         }
 
-        // 判定銷毀：倒數歸零
-        if (room.emptySince && (Date.now() - room.emptySince > ROOM_AUTO_DELETE_MS)) {
+        // 補漏機制：如果偵測到空房卻沒標記時間，立刻啟動倒數
+        if (memberCount === 0 && !room.emptySince) {
+          updates[`rooms/${id}/emptySince`] = nowTs;
+          updates[`roomSummaries/${id}/emptySince`] = nowTs;
+        }
+
+        // 判定銷毀：必須同時滿足「員額為0」且「倒數歸零」
+        // V17.8 FIX: 增加 memberCount === 0 雙重鎖定，確保萬無一失
+        if (memberCount === 0 && room.emptySince && (nowTs - room.emptySince > ROOM_AUTO_DELETE_MS)) {
           updates[`rooms/${id}`] = null;
           updates[`roomSummaries/${id}`] = null;
         }
@@ -1080,7 +1088,7 @@ function App() {
         update(ref(db), updates);
       }
     };
-    const interval = setInterval(cleanup, 30000); // 加密偵測頻率至 30s
+    const interval = setInterval(cleanup, 30000);
     return () => clearInterval(interval);
   }, [rooms, roomSummaries]);
 
@@ -1255,15 +1263,33 @@ function App() {
 
     if (room.password !== passwordInput) return alert("密碼錯誤");
 
-    await update(ref(db, `rooms/${currentRoomId}/members`), {
-      [userName]: {
-        joinedAt: nowSynced,
-        startKills: room.totalKills || 0,
-        totalKills: currentUser.profile?.totalKills || 0, // 加入時同步階級數據 (v12.7)
-        photoURL: currentUser.profile?.photoURL || '🐶', // 同步頭像 (v2.3)
-        isOnline: true
-      }
-    });
+    // V17.8 FIX: 採用原子化更新，同時「加入成員」並「清除空房標記」
+    const updates = {};
+    const newMemberData = {
+      joinedAt: nowSynced,
+      startKills: room.totalKills || 0,
+      totalKills: currentUser.profile?.totalKills || 0,
+      photoURL: currentUser.profile?.photoURL || '🐶',
+      isOnline: true
+    };
+    
+    updates[`rooms/${currentRoomId}/members/${userName}`] = newMemberData;
+    updates[`rooms/${currentRoomId}/emptySince`] = null; // 立即清除銷毀倒數
+    updates[`roomSummaries/${currentRoomId}/emptySince`] = null;
+
+    // 如果當前房間沒有車長，或是車長不在成員名單中，由加入者自動遞補
+    const currentMembers = Object.keys(room.members || {});
+    if (!room.conductor || !currentMembers.includes(room.conductor)) {
+      updates[`rooms/${currentRoomId}/conductor`] = userName;
+      updates[`roomSummaries/${currentRoomId}/conductor`] = userName;
+    }
+
+    // V17.8 同步強化：立即更新大廳摘要，防止其他人的清理定時器誤刪
+    const updatedMemberNames = Array.from(new Set([...currentMembers, userName]));
+    updates[`roomSummaries/${currentRoomId}/onlineCount`] = updatedMemberNames.length;
+    updates[`roomSummaries/${currentRoomId}/memberNames`] = updatedMemberNames;
+
+    await update(ref(db), updates);
 
     setLastJoinedRoomId(currentRoomId);
     localStorage.setItem('pikapi_last_room', currentRoomId);
