@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db, auth, googleProvider } from './firebase';
-import { ref, onValue, set, update, remove, onDisconnect, get, off, query, orderByChild, equalTo, limitToFirst, startAt, endAt, child, increment, onChildAdded, onChildChanged, onChildRemoved } from 'firebase/database';
+import { ref, onValue, set, update, remove, onDisconnect, get, off, query, orderByChild, equalTo, limitToFirst, limitToLast, startAt, endAt, child, increment, onChildAdded, onChildChanged, onChildRemoved, push } from 'firebase/database';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import html2canvas from 'html2canvas';
 import './membership.css';
@@ -226,7 +226,9 @@ function App() {
   const [presenceData, setPresenceData] = useState({});
   const [allUsers, setAllUsers] = useState({});
   const [pendingUsers, setPendingUsers] = useState({}); // 即時監聽申請中用戶 (獨立於所有用戶)
-  const [adminTab, setAdminTab] = useState('rooms'); // 'rooms' | 'users'
+  const [adminTab, setAdminTab] = useState('rooms'); // 'rooms' | 'users' | 'logs'
+  const [systemLogs, setSystemLogs] = useState([]); // 全域系統日誌 (v17.9)
+  const [showLogGuide, setShowLogGuide] = useState(false); // 是否顯示日誌說明
 
   // 排行榜流量優化計時器 (v8.2)
   const [syncCountdown, setSyncCountdown] = useState(0); // 5s 執行倒數
@@ -687,6 +689,35 @@ function App() {
     }
   }, [view, isAdmin, isTabActive, roomSummaries, allUsers]);
 
+  // V17.9: 系統日誌監聽器 (僅限管理員在 Logs 分頁時才抓取，極省流量)
+  useEffect(() => {
+    if (view === 'admin' && isAdmin && adminTab === 'logs' && isTabActive) {
+      const logsRef = query(ref(db, 'system_logs'), limitToLast(100));
+      return onValue(logsRef, (snap) => {
+        const data = snap.val() || {};
+        const list = Object.entries(data)
+          .map(([id, val]) => ({ id, ...val }))
+          .sort((a, b) => b.ts - a.ts);
+        setSystemLogs(list);
+      });
+    }
+  }, [view, isAdmin, adminTab, isTabActive]);
+
+  const addSystemLog = (type, rid, msg) => {
+    try {
+      const logsRef = ref(db, 'system_logs');
+      const newLogRef = push(logsRef);
+      set(newLogRef, {
+        ts: Date.now(),
+        type,
+        rid: rid || 'N/A',
+        msg
+      });
+    } catch (err) {
+      console.error("Log error:", err);
+    }
+  };
+
   // --- 排行榜數據抓取 (V10-ULTIMATE: 5s 戰略同步序列) ---
   const fetchLeaderboard = async (isManual = false) => {
     if (!isManual) return;
@@ -1067,6 +1098,7 @@ function App() {
         if (memberCount > 0 && room.emptySince) {
           updates[`rooms/${id}/emptySince`] = null;
           updates[`roomSummaries/${id}/emptySince`] = null;
+          addSystemLog('CLEAR', id, `偵測到有人在內 (Count: ${memberCount})，已自動修正並解除倒數`);
           return; // 既然有人，這輪就不再檢查刪除
         }
 
@@ -1074,6 +1106,7 @@ function App() {
         if (memberCount === 0 && !room.emptySince) {
           updates[`rooms/${id}/emptySince`] = nowTs;
           updates[`roomSummaries/${id}/emptySince`] = nowTs;
+          addSystemLog('STAMP', id, '偵測到空房，啟動 2 小時銷毀倒數');
         }
 
         // 判定銷毀：必須同時滿足「員額為0」且「倒數歸零」
@@ -1081,6 +1114,7 @@ function App() {
         if (memberCount === 0 && room.emptySince && (nowTs - room.emptySince > ROOM_AUTO_DELETE_MS)) {
           updates[`rooms/${id}`] = null;
           updates[`roomSummaries/${id}`] = null;
+          addSystemLog('DELETE', id, '空房超過 2 小時且無人上車，執行系統鎖定銷毀');
         }
       });
 
@@ -1238,6 +1272,7 @@ function App() {
       [`roomSummaries/${id}`]: summary,
       [`users/${currentUser.uid}/rooms/${id}`]: true
     }).then(() => {
+      addSystemLog('CREATE', id, `車長 ${conductor} 創建了新的戰略房間`);
       setCurrentRoomId(id);
       setLastJoinedRoomId(id); // 標記為正式進入 (v12.5)
       localStorage.setItem('pikapi_last_room', id);
@@ -1290,6 +1325,7 @@ function App() {
     updates[`roomSummaries/${currentRoomId}/memberNames`] = updatedMemberNames;
 
     await update(ref(db), updates);
+    addSystemLog('JOIN', currentRoomId, `${userName} 成功加入房間，系統已清除任何銷毀倒數`);
 
     setLastJoinedRoomId(currentRoomId);
     localStorage.setItem('pikapi_last_room', currentRoomId);
@@ -1349,6 +1385,12 @@ function App() {
       }
 
       update(ref(db, `rooms/${currentRoomId}`), updates);
+
+      if (isRoomEmpty) {
+        addSystemLog('STAMP', currentRoomId, `最後一員 ${userName} 離開，房間進入自動銷毀倒數`);
+      } else {
+        addSystemLog('LEAVE', currentRoomId, `${userName} 離開了房間`);
+      }
     }
     setSessionStartTime(null);
     setShowLeaveModal(false);
@@ -1363,6 +1405,7 @@ function App() {
     if (currentRoom.conductor !== userName) return;
     if (confirm(`確定要將 ${targetName} 請下車嗎？`)) {
       remove(ref(db, `rooms/${currentRoomId}/members/${targetName}`));
+      addSystemLog('KICK', currentRoomId, `車長 ${userName} 將 ${targetName} 請下車`);
     }
   };
 
@@ -1604,6 +1647,7 @@ function App() {
       // V16.4 FIX: 採用原子化刪除，防止 addRecord 或語音訊息在下一行導致房間「復活」
       updates[`rooms/${fromId}`] = null;
       updates[`roomSummaries/${fromId}`] = null;
+      addSystemLog('TRANSFER', fromId, `執行毀滅式傳送至房間 ${currentRoomId}，原房間已合法銷毀`);
     } else {
       // 僅在房間未毀滅時才發送對面語音
       updates[`rooms/${fromId}/voiceAlert`] = { message: `${userName} 房主已經接受你們的愛`, ts: Date.now(), sender: userName };
@@ -1679,6 +1723,7 @@ function App() {
       [`rooms/${roomId}`]: null,
       [`roomSummaries/${roomId}`]: null
     });
+    addSystemLog('DELETE', roomId, `管理員 ${userName} 在指揮部執行【強制刪除】`);
   };
 
   const adminKickMember = (roomId, memberName) => {
@@ -1689,6 +1734,7 @@ function App() {
 
     remove(ref(db, `rooms/${cleanId}/members/${memberName}`))
       .then(() => {
+        addSystemLog('KICK', cleanId, `管理員 ${userName} 將 ${memberName} 強制逐出房間`);
         const summary = roomSummaries[cleanId];
         if (summary) {
           const newNames = (summary.memberNames || []).filter(n => n !== memberName);
@@ -1888,6 +1934,7 @@ function App() {
           <div className="admin-tabs">
             <button className={`admin-tab ${adminTab === 'rooms' ? 'active' : ''}`} onClick={() => setAdminTab('rooms')}>房間概況</button>
             <button className={`admin-tab ${adminTab === 'users' ? 'active' : ''}`} onClick={() => setAdminTab('users')}>成員數據</button>
+            <button className={`admin-tab ${adminTab === 'logs' ? 'active' : ''}`} onClick={() => setAdminTab('logs')}>日誌監控</button>
           </div>
           <button className="btn-secondary back-lobby-btn-small" onClick={() => setView('lobby')}>返回大廳</button>
         </div>
@@ -1906,7 +1953,7 @@ function App() {
             </div>
           </div>
 
-          {adminTab === 'rooms' ? (
+          {adminTab === 'rooms' && (
             <div className="admin-table-wrapper">
               <table className="admin-table">
                 <thead><tr><th>房號</th><th>Boss</th><th>密碼</th><th>車長</th><th>當前成員 / 管理</th><th>操作</th></tr></thead>
@@ -1958,10 +2005,10 @@ function App() {
                   })}
                 </tbody>
               </table>
-
             </div>
+          )}
 
-          ) : (
+          {adminTab === 'users' && (
             <div className="admin-users-view">
               {/* --- 獨立即時審核區塊 (不需載入全體成員即可查看) --- */}
               {/* Podium Reconstruction: 2nd - 1st - 3rd */}
@@ -2109,8 +2156,74 @@ function App() {
             </div>
           )}
 
-          {/* 移除原本這裡的 adminMenu 區塊 */}
+          {adminTab === 'logs' && (
+            <div className="admin-logs-view fade-in">
+              <div className="logs-guide-btn-wrapper" style={{ marginBottom: '15px' }}>
+                <button 
+                  className="btn-liquid-glass lg-blue" 
+                  onClick={() => setShowLogGuide(!showLogGuide)}
+                  style={{ width: '100%', padding: '12px', fontSize: '14px', borderRadius: '12px' }}
+                >
+                  {showLogGuide ? '📖 收合說明手冊' : '📖 查看日誌說明 / 定義 (點擊此處了解行為含義)'}
+                </button>
+              </div>
+
+              {showLogGuide && (
+                <div className="logs-manual-card card-bg glass-panel" style={{ marginBottom: '20px', padding: '20px' }}>
+                  <h4 style={{ color: 'var(--blue)', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="icon">📡</span> 行為代碼圖例 (Command Legend)
+                  </h4>
+                  <table className="admin-table mini-table">
+                    <thead>
+                      <tr><th>識別</th><th>指導說明 (描述)</th><th>戰略目的</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr><td className="log-type-tag create">🚀 [建立]</td><td>建立新房間</td><td>追蹤房間的出生起點。</td></tr>
+                      <tr><td className="log-type-tag stamp">⌛ [標記]</td><td>偵測到零人，啟動倒數</td><td>確認判定「空房」的時間點。</td></tr>
+                      <tr><td className="log-type-tag clear">🛡️ [解除]</td><td>偵測到人上車，解除倒數</td><td>確認標記已被「阻斷」，防止誤刪。</td></tr>
+                      <tr><td className="log-type-tag delete">🚮 [銷毀]</td><td>空房超時，執行物理刪除</td><td>確認系統回收路徑 (真正消失點)。</td></tr>
+                      <tr><td className="log-type-tag transfer">💖 [連動]</td><td>毀滅傳送 (ALL) 導致移除</td><td>確認人為操作導致的房間消失。</td></tr>
+                      <tr><td className="log-type-tag leave">🏃 [離開]</td><td>成員主動點選下車</td><td>追蹤人員正常流動。</td></tr>
+                      <tr><td className="log-type-tag kick">🚫 [請下車]</td><td>成員被車長強制移除</td><td>追蹤管理行為。</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="logs-strem-wrapper card-bg glass-panel" style={{ padding: '20px', maxHeight: '600px', overflowY: 'auto' }}>
+                {systemLogs.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '60px', opacity: 0.5 }}>🛰️ 暫無通訊紀錄，請待命偵測...</div>
+                ) : (
+                  <div className="logs-list">
+                    {systemLogs.map(log => (
+                      <div key={log.id} className="log-item" style={{ 
+                        padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: '15px', alignItems: 'center' 
+                      }}>
+                        <span className="log-ts" style={{ color: '#666', fontSize: '11px', whiteSpace: 'nowrap', minWidth: '80px' }}>
+                          {new Date(log.ts).toLocaleString('zh-TW', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <div className={`log-badge-v179 ${log.type?.toLowerCase()}`} style={{ 
+                          minWidth: '55px', textAlign: 'center', fontSize: '11px', fontWeight: '800', 
+                          padding: '3px 8px', borderRadius: '6px', color: '#fff',
+                          background: log.type === 'DELETE' ? 'var(--danger)' : 
+                                      (log.type === 'STAMP' ? 'var(--gold-dark)' : 
+                                      (log.type === 'CLEAR' || log.type === 'JOIN' || log.type === 'LEAVE' ? 'var(--ready)' : 
+                                      (log.type === 'KICK' ? 'var(--danger)' : 'rgba(255,255,255,0.1)')))
+                        }}>
+                          {log.type}
+                        </div>
+                        <span className="log-rid" style={{ color: 'var(--blue)', fontWeight: '800', letterSpacing: '1px' }}>#{log.rid}</span>
+                        <span className="log-msg" style={{ fontSize: '13px', color: '#ddd' }}>{log.msg}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
+
+          {/* 移除原本這裡的 adminMenu 區塊 */}
       </div>
     );
   };

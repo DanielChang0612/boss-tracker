@@ -3103,3 +3103,41 @@ body::before {
   align-items: center;
   gap: 8px;
 }
+
+/* --- V17.9 Admin Logs Specific Styling --- */
+.admin-logs-view {
+  animation: fadeIn 0.4s ease;
+}
+
+.log-type-tag {
+  font-weight: 800;
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.log-type-tag.create { color: var(--blue); }
+.log-type-tag.stamp { color: var(--gold); }
+.log-type-tag.clear { color: var(--ready); }
+.log-type-tag.delete { color: var(--danger); font-weight: 900; }
+.log-type-tag.transfer { color: #f093fb; }
+
+.log-badge-v179.delete { box-shadow: 0 0 10px var(--danger-glow); }
+.log-badge-v179.stamp { box-shadow: 0 0 10px var(--gold-glow); }
+
+.logs-strem-wrapper::-webkit-scrollbar {
+  width: 6px;
+}
+.logs-strem-wrapper::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.02);
+}
+.logs-strem-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+}
+.logs-strem-wrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.2);
+}
