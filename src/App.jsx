@@ -1558,7 +1558,9 @@ function App() {
     // 2. 語音連動 (本地端)
     updates[`rooms/${currentRoomId}/voiceAlert`] = { message: `成功接受來自 ${fromConductor} 房主的愛`, ts: Date.now(), sender: userName };
 
-    // 3. 處理終結邏輯與清除這筆愛
+    // 3. 通用清除請求 (無論何種模式都要移除)
+    updates[`rooms/${currentRoomId}/loveRequest`] = null;
+
     if (mode === 'all') {
       // V16.4 FIX: 採用原子化刪除，防止 addRecord 或語音訊息在下一行導致房間「復活」
       updates[`rooms/${fromId}`] = null;
@@ -1566,7 +1568,6 @@ function App() {
     } else {
       // 僅在房間未毀滅時才發送對面語音
       updates[`rooms/${fromId}/voiceAlert`] = { message: `${userName} 房主已經接受你們的愛`, ts: Date.now(), sender: userName };
-      updates[`rooms/${currentRoomId}/loveRequest`] = null;
     }
 
     // 4. 一次性提交，確保不會發生 race condition
