@@ -153,8 +153,14 @@ function App() {
 
   const [voiceSettings, setVoiceSettings] = useState(() => {
     const saved = localStorage.getItem('pikapi_voice_settings');
-    // 預設優選配置 (v15.8): 語速稍微加快一點點比較好聽
-    return saved ? JSON.parse(saved) : { voiceURI: '', rate: 1.1, pitch: 1 };
+    const defaultSettings = { 
+      voiceURI: '', 
+      rate: 1.1, 
+      pitch: 1, 
+      volume: 1, 
+      isMuted: false 
+    };
+    return saved ? { ...defaultSettings, ...JSON.parse(saved) } : defaultSettings;
   });
 
   const voiceSettingsRef = useRef(voiceSettings);
@@ -167,20 +173,27 @@ function App() {
   const isSpeaking = useRef(false);
 
   const processSpeechQueue = () => {
-    if (isSpeaking.current || speechQueue.current.length === 0) return;
+    const vSet = voiceSettingsRef.current;
     
-    isSpeaking.current = true;
+    // 如果靜音，跳過此次播放
+    if (vSet.isMuted) {
+      console.log(`[語音序列] 目前靜音中，略過本次播放`);
+      isSpeaking.current = false;
+      setTimeout(processSpeechQueue, 100);
+      return;
+    }
+
     const text = speechQueue.current.shift();
     console.log(`[語音序列] 準備播放: "${text}"，剩餘佇列: ${speechQueue.current.length}`);
 
     const utterance = new SpeechSynthesisUtterance(text);
-    const vSet = voiceSettingsRef.current;
     const vAvail = availableVoicesRef.current;
     const selectedVoice = vAvail.find(v => v.voiceURI === vSet.voiceURI);
     
     if (selectedVoice) utterance.voice = selectedVoice;
     utterance.rate = vSet.rate;
     utterance.pitch = vSet.pitch;
+    utterance.volume = vSet.volume ?? 1;
     utterance.lang = 'zh-TW';
 
     utterance.onstart = () => { 
@@ -2776,25 +2789,25 @@ function App() {
                 <span className="hud-label">房間管理指令</span>
                 <div className="v9-sidebar-controls">
                   {isConductor && (
-                    <button className="btn-v9-sidebar pink" onClick={handleSpreadLoveClick}>
+                    <button className="btn-liquid-glass lg-pink" style={{ width: '100%', marginBottom: '10px' }} onClick={handleSpreadLoveClick}>
                       <span className="icon">💖</span> 把愛傳下去
                     </button>
                   )}
-                  <button className="btn-v9-sidebar grey" onClick={() => setShowVoiceSettings(true)}>
+                  <button className="btn-liquid-glass lg-blue" style={{ width: '100%', marginBottom: '10px' }} onClick={() => setShowVoiceSettings(true)}>
                     <span className="icon">⚙️</span> 語音設定
                   </button>
-                  <button className="btn-v9-sidebar yellow" onClick={() => {
+                  <button className="btn-liquid-glass lg-cyan" style={{ width: '100%', marginBottom: '10px' }} onClick={() => {
                     const shareUrl = `${window.location.origin}${window.location.pathname}#${currentRoomId}`;
                     navigator.clipboard.writeText(shareUrl);
                     alert('房號連結已複製 (含自動夾帶房號)！');
                   }}>
                     分享房間連結
                   </button>
-                  <button className="btn-v9-sidebar red" onClick={() => setShowLeaveModal(true)}>
-                    下車離開 (返回大廳)
-                  </button>
-                  <button className="btn-v9-sidebar white" onClick={toggleWildBossExplore}>
+                  <button className="btn-liquid-glass lg-amber" style={{ width: '100%', marginBottom: '10px' }} onClick={toggleWildBossExplore}>
                     <span className="icon">🍖</span> {currentRoom.wildBossExplore?.[userName] ? '回到房內打王' : '餓了去打野'}
+                  </button>
+                  <button className="btn-liquid-glass lg-red" style={{ width: '100%' }} onClick={() => setShowLeaveModal(true)}>
+                    下車離開 (返回大廳)
                   </button>
                 </div>
               </div>
@@ -2834,8 +2847,8 @@ function App() {
                       ) : (
                         isConductor && (
                           <div className="v9-member-ctx-actions">
-                            <button className="v9-ctx-btn-gold" onClick={() => transferConductor(mName)} title="移交車長">👑</button>
-                            <button className="v9-ctx-btn-red" onClick={() => removeMember(mName)} title="請下車">❌</button>
+                            <button className="btn-liquid-glass btn-lg-micro lg-amber" onClick={() => transferConductor(mName)} title="移交車長">👑</button>
+                            <button className="btn-liquid-glass btn-lg-micro lg-red" onClick={() => removeMember(mName)} title="請下車">❌</button>
                           </div>
                         )
                       )}
@@ -2875,7 +2888,7 @@ function App() {
                 </div>
 
                 <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <button className="v9-btn bg-yellow" style={{ width: '100%' }} onClick={exportReport}>🖼️ 匯出擊殺戰報 (PNG)</button>
+                  <button className="btn-liquid-glass lg-amber" style={{ width: '100%' }} onClick={exportReport}>🖼️ 匯出擊殺戰報 (PNG)</button>
                 </div>
               </div>
             </aside>
@@ -2898,8 +2911,8 @@ function App() {
                           onKeyPress={e => e.key === 'Enter' && updateRoomPassword()}
                           autoFocus
                         />
-                        <button className="btn-v9-confirm" onClick={updateRoomPassword}>儲存</button>
-                        <button className="btn-v9-cancel" onClick={() => setIsEditingPassword(false)}>取消</button>
+                        <button className="btn-liquid-glass btn-lg-micro lg-blue" onClick={updateRoomPassword}>儲存</button>
+                        <button className="btn-liquid-glass btn-lg-micro lg-red" style={{ marginLeft: '5px' }} onClick={() => setIsEditingPassword(false)}>取消</button>
                       </div>
                     ) : (
                       <>
@@ -2908,7 +2921,8 @@ function App() {
                         </div>
                         {isConductor && (
                           <button
-                            className="btn-v9-edit-pwd"
+                            className="btn-liquid-glass btn-lg-micro lg-blue"
+                            style={{ padding: '4px 8px', minWidth: 'unset' }}
                             title="修改密碼"
                             onClick={() => {
                               setNewPasswordInput(currentRoom.password || '');
@@ -2918,7 +2932,7 @@ function App() {
                             ✏️
                           </button>
                         )}
-                        <button className="btn-v9-copy" onClick={() => {
+                        <button className="btn-liquid-glass btn-lg-micro lg-cyan" style={{ padding: '4px 12px', minWidth: 'unset', marginLeft: '5px' }} onClick={() => {
                           navigator.clipboard.writeText(currentRoom.password || '');
                           alert('密碼已複製！');
                         }}>複製</button>
@@ -2929,25 +2943,25 @@ function App() {
 
                 <div className="v9-control-group desktop-only">
                   {isConductor && (
-                    <button className="btn-v9-action pink" onClick={handleSpreadLoveClick}>
+                    <button className="btn-liquid-glass lg-pink" onClick={handleSpreadLoveClick}>
                       <span className="icon">💖</span> 把愛傳下去
                     </button>
                   )}
-                  <button className="btn-v9-action grey" onClick={() => setShowVoiceSettings(true)}>
+                  <button className="btn-liquid-glass lg-blue" onClick={() => setShowVoiceSettings(true)}>
                     <span className="icon">⚙️</span> 語音設定
                   </button>
-                  <button className="btn-v9-action yellow" onClick={() => {
+                  <button className="btn-liquid-glass lg-cyan" onClick={() => {
                     const shareUrl = `${window.location.origin}${window.location.pathname}#${currentRoomId}`;
                     navigator.clipboard.writeText(shareUrl);
                     alert('房號連結已複製 (含自動夾帶房號)！');
                   }}>
                     分享房間連結
                   </button>
-                  <button className="btn-v9-action red" onClick={() => setShowLeaveModal(true)}>
-                    下車離開 (返回大廳)
-                  </button>
-                  <button className="btn-v9-action white" onClick={toggleWildBossExplore}>
+                  <button className="btn-liquid-glass lg-amber" onClick={toggleWildBossExplore}>
                     <span className="icon">🍖</span> {currentRoom.wildBossExplore?.[userName] ? '回到房內打王' : '餓了去打野'}
+                  </button>
+                  <button className="btn-liquid-glass lg-red" onClick={() => setShowLeaveModal(true)}>
+                    下車離開 (返回大廳)
                   </button>
                 </div>
 
@@ -3045,7 +3059,7 @@ function App() {
                       onKeyPress={e => e.key === 'Enter' && addExploreRecord()}
                       autoFocus
                     />
-                    <button className="btn-v9-report bg-gold-black" onClick={addExploreRecord}>回報發現野王</button>
+                    <button className="btn-liquid-glass lg-amber" style={{ width: '200px' }} onClick={addExploreRecord}>回報發現野王</button>
                   </div>
                 ) : (
                   <div className="kill-input-v25">
@@ -3057,7 +3071,7 @@ function App() {
                       onChange={e => setInputChannel(e.target.value)}
                       onKeyPress={e => e.key === 'Enter' && addRecord()}
                     />
-                    <button className="btn-v9-report" onClick={() => addRecord()}>已擊殺開始計時</button>
+                    <button className="btn-liquid-glass lg-green" style={{ width: '200px' }} onClick={() => addRecord()}>已擊殺開始計時</button>
                   </div>
                 )}
 
@@ -3122,14 +3136,14 @@ function App() {
 
                             {/* 6. 頻道操作 */}
                             <div className="v5-btn-set">
-                              <button className="v9-btn bg-purple" onClick={() => handleStationed(ch)}>已佔位</button>
+                              <button className="btn-liquid-glass btn-lg-micro lg-purple" onClick={() => handleStationed(ch)}>已佔位</button>
                               {!isReady ? (
-                                <button className="v9-btn bg-yellow" onClick={() => handleRespawned(ch)}>已重生</button>
+                                <button className="btn-liquid-glass btn-lg-micro lg-amber" onClick={() => handleRespawned(ch)}>已重生</button>
                               ) : (
-                                <button className="v9-btn bg-pink" onClick={() => addRecord(ch)}>已擊殺</button>
+                                <button className="btn-liquid-glass btn-lg-micro lg-pink" onClick={() => addRecord(ch)}>已擊殺</button>
                               )}
-                              <button className="v9-btn bg-blue" onClick={() => broadcastStatus(ch)}>🔊 廣播</button>
-                              <button className="v9-btn bg-red" onClick={() => removeRecord(ch)}>刪除</button>
+                              <button className="btn-liquid-glass btn-lg-micro lg-cyan" onClick={() => broadcastStatus(ch)}>🔊 廣播</button>
+                              <button className="btn-liquid-glass btn-lg-micro lg-red" onClick={() => removeRecord(ch)}>刪除</button>
                             </div>
                           </div>
                         );
@@ -3584,6 +3598,35 @@ function App() {
 
               {/* Sliders Grid */}
               <div className="v30-sliders-grid">
+                <div className="v30-control-section full-width">
+                  <div className="v30-section-label">
+                    <span className="dot volume"></span> 音量大小 (VOLUME: {Math.round(voiceSettings.volume * 100)}%)
+                    <label className="v30-mute-shortcut">
+                      <input 
+                        type="checkbox" 
+                        checked={voiceSettings.isMuted} 
+                        onChange={e => setVoiceSettings(prev => ({ ...prev, isMuted: e.target.checked }))} 
+                      />
+                      <span className="mute-text">{voiceSettings.isMuted ? '🔇 已靜音' : '🔊 播放中'}</span>
+                    </label>
+                  </div>
+                  <div className="v30-range-wrapper volume-track">
+                    <input
+                      type="range" min="0" max="1" step="0.05"
+                      className="v30-range-input"
+                      value={voiceSettings.isMuted ? 0 : voiceSettings.volume}
+                      disabled={voiceSettings.isMuted}
+                      onChange={e => setVoiceSettings(prev => ({ ...prev, volume: parseFloat(e.target.value) }))}
+                    />
+                    <div className="v30-range-track-bg"></div>
+                    <div className="v30-volume-visual-bars">
+                      {[...Array(10)].map((_, i) => (
+                        <div key={i} className={`bar ${voiceSettings.volume > (i/10) && !voiceSettings.isMuted ? 'active' : ''}`}></div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="v30-control-section">
                   <div className="v30-section-label">
                     <span className="dot"></span> 語音速率 (RATE: {voiceSettings.rate}x)
@@ -3618,11 +3661,15 @@ function App() {
               {/* Preview & Action */}
               <div className="v30-console-footer">
                 <div className="v30-status-info">
-                  <div className="v30-sync-light"></div>
-                  <span>系統狀態: 待命 (READY)</span>
+                  <div className={`v30-sync-light ${voiceSettings.isMuted ? 'muted' : 'online'}`}></div>
+                  <span>系統狀態: {voiceSettings.isMuted ? '靜音中 (MUTED)' : '待命 (READY)'}</span>
                 </div>
                 <div className="v30-action-group">
-                  <button className="v30-btn-test" onClick={handleTestVoice}>
+                  <button 
+                    className="v30-btn-test" 
+                    onClick={handleTestVoice}
+                    disabled={voiceSettings.isMuted}
+                  >
                     <span className="icon">🔊</span> 測試播放 (TEST PREVIEW)
                   </button>
                   <button className="v30-btn-confirm" onClick={() => setShowVoiceSettings(false)}>
