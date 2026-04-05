@@ -3105,6 +3105,86 @@ body::before {
 }
 
 /* --- V17.9 Admin Logs Specific Styling --- */
+
+/* --- V17.9 BOSS Stolen Warning UI --- */
+.v5-timer.is-stolen {
+  color: #ff4444 !important;
+  text-shadow: 0 0 10px rgba(255, 68, 68, 0.5);
+}
+
+.stolen-warning {
+  font-size: 10px;
+  color: #ff6b6b;
+  font-weight: 800;
+  margin-top: 4px;
+  text-align: center;
+  background: rgba(255, 68, 68, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 68, 68, 0.2);
+}
+
+.v5-status-stolen {
+  background: rgba(255, 68, 68, 0.2) !important;
+  color: #ff4444 !important;
+  border: 1px solid #ff4444 !important;
+}
+
+.v5-timer-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* --- V25 Tactical Table Layout (Left-Leaning Alignment) --- */
+.v25-table-header, .v25-row {
+  display: grid !important;
+  grid-template-columns: 120px 1fr 150px 130px 350px !important;
+  align-items: center !important;
+  padding: 12px 20px !important;
+  gap: 15px !important;
+}
+
+/* 修正標題與內容對齊位置 */
+.v25-table-header {
+  border-left: 4px solid transparent; 
+  border-bottom: 2px solid var(--border-dim);
+}
+
+.v25-col-ch {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  color: var(--gold);
+}
+
+.v25-col-center {
+  justify-self: start; /* 依照要求改為靠左 */
+  text-align: left;
+}
+
+.v25-col-right {
+  justify-self: flex-end;
+  text-align: right;
+}
+
+.v5-ch-id {
+  font-size: 1.2rem !important;
+  white-space: nowrap !important;
+  font-weight: 900;
+  color: var(--gold);
+}
+
+.v5-btn-set {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.v4-ch-group-v9 {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
 .admin-logs-view {
   animation: fadeIn 0.4s ease;
 }

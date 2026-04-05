@@ -145,7 +145,7 @@ function App() {
   const [isEditingPassword, setIsEditingPassword] = useState(false); // V16.9: 修改密碼模式
   const [newPasswordInput, setNewPasswordInput] = useState(''); // V16.9: 新密碼輸入
   const lastProcessedMsg = useRef(''); // V16.8.4: 防止重複語音
-  
+
   // V17.5: 啟動時預先喚醒語音引擎
   useEffect(() => {
     window.speechSynthesis.resume();
@@ -153,12 +153,12 @@ function App() {
 
   const [voiceSettings, setVoiceSettings] = useState(() => {
     const saved = localStorage.getItem('pikapi_voice_settings');
-    const defaultSettings = { 
-      voiceURI: '', 
-      rate: 1.1, 
-      pitch: 1, 
-      volume: 1, 
-      isMuted: false 
+    const defaultSettings = {
+      voiceURI: '',
+      rate: 1.1,
+      pitch: 1,
+      volume: 1,
+      isMuted: false
     };
     return saved ? { ...defaultSettings, ...JSON.parse(saved) } : defaultSettings;
   });
@@ -173,41 +173,60 @@ function App() {
   const isSpeaking = useRef(false);
 
   const processSpeechQueue = () => {
-    const vSet = voiceSettingsRef.current;
-    
-    // 如果靜音，跳過此次播放
-    if (vSet.isMuted) {
-      console.log(`[語音序列] 目前靜音中，略過本次播放`);
+    // 守衛 1: 如果已經在講話了，就離開，交給 onend 處理
+    if (isSpeaking.current) return;
+
+    // 守衛 2: 如果隊列沒東西了，就停止
+    if (speechQueue.current.length === 0) {
       isSpeaking.current = false;
+      return;
+    }
+
+    const vSet = voiceSettingsRef.current;
+
+    // 守衛 3: 如果靜音，清空隊列並停止
+    if (vSet.isMuted) {
+      console.log(`[語音序列] 目前靜音中，清空此次請求`);
+      speechQueue.current = [];
+      isSpeaking.current = false;
+      return;
+    }
+
+    // 正式抓取文字
+    const text = speechQueue.current.shift();
+    if (!text) {
+      // 雙重保險：如果抓到 undefined/null，繼續下一個或結束
       setTimeout(processSpeechQueue, 100);
       return;
     }
 
-    const text = speechQueue.current.shift();
+    // 鎖定狀態
+    isSpeaking.current = true;
     console.log(`[語音序列] 準備播放: "${text}"，剩餘佇列: ${speechQueue.current.length}`);
 
     const utterance = new SpeechSynthesisUtterance(text);
     const vAvail = availableVoicesRef.current;
     const selectedVoice = vAvail.find(v => v.voiceURI === vSet.voiceURI);
-    
+
     if (selectedVoice) utterance.voice = selectedVoice;
     utterance.rate = vSet.rate;
     utterance.pitch = vSet.pitch;
     utterance.volume = vSet.volume ?? 1;
     utterance.lang = 'zh-TW';
 
-    utterance.onstart = () => { 
+    utterance.onstart = () => {
       console.log(`[語音序列] 正式開始唸: "${text}"`);
     };
-    utterance.onend = () => { 
+    utterance.onend = () => {
       console.log(`[語音序列] 唸完囉: "${text}"`);
       isSpeaking.current = false;
-      setTimeout(processSpeechQueue, 200); 
+      // 增加 200ms 緩衝，給引擎反應時間再唸下一條
+      setTimeout(processSpeechQueue, 200);
     };
-    utterance.onerror = (e) => { 
+    utterance.onerror = (e) => {
       console.error(`[語音序列] 發生非預期中斷(${e.error})`, e);
       isSpeaking.current = false;
-      
+
       // V17.5: 若被插斷，代表引擎不穩，給予更長的緩衝期 (1秒)
       const delay = e.error === 'interrupted' ? 1000 : 200;
       setTimeout(processSpeechQueue, delay);
@@ -533,7 +552,7 @@ function App() {
     const alertRef = ref(db, `rooms/${currentRoomId}/voiceAlert`);
     const unsubscribe = onValue(alertRef, (snapshot) => {
       // V17.6: 只有前景分頁可以開口，防止多個分頁同時搶麥克風導致 interrupted
-      if (!isTabActive) return; 
+      if (!isTabActive) return;
 
       const alert = snapshot.val();
       if (alert && alert.ts > lastAlertTs.current) {
@@ -541,10 +560,12 @@ function App() {
 
         lastAlertTs.current = alert.ts;
         lastProcessedMsg.current = alert.message;
-        
+
         // 加入佇列並啟動播放程序
-        speechQueue.current.push(alert.message);
-        processSpeechQueue();
+        if (alert.message) {
+          speechQueue.current.push(alert.message);
+          processSpeechQueue();
+        }
       }
     });
     return () => unsubscribe();
@@ -1307,7 +1328,7 @@ function App() {
       photoURL: currentUser.profile?.photoURL || '🐶',
       isOnline: true
     };
-    
+
     updates[`rooms/${currentRoomId}/members/${userName}`] = newMemberData;
     updates[`rooms/${currentRoomId}/emptySince`] = null; // 立即清除銷毀倒數
     updates[`roomSummaries/${currentRoomId}/emptySince`] = null;
@@ -1421,17 +1442,17 @@ function App() {
     if (!currentRoomId) return;
     const newState = !wildBossExplore;
     setWildBossExplore(newState);
-    
+
     // 同步到資料庫，讓房內的人都知道誰進入了打野模式 (保持原有廣播功能)
     const updates = {};
     updates[`rooms/${currentRoomId}/wildBossExplore/${userName}`] = newState ? true : null;
-    
+
     if (newState) {
       const msg = `${userName} 前往各頻道打野中`;
       updates[`rooms/${currentRoomId}/voiceAlert`] = { message: msg, ts: Date.now(), sender: userName };
       setExploreChannelInput(''); // 重設輸入
     }
-    
+
     update(ref(db), updates);
   };
 
@@ -1440,14 +1461,14 @@ function App() {
     const ch = exploreChannelInput.trim();
     if (!ch || !currentRoomId) return;
     const chKey = `CH ${ch}`;
-    
+
     // 重要：lastKill = 0 是我們內定的置頂標記
     update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), {
-      lastKill: 0, 
+      lastKill: 0,
       reporter: userName,
       occupant: null
     });
-    
+
     setExploreChannelInput('');
     const msg = `${userName} 在頻道 ${ch} 發現野王啦`;
     update(ref(db, `rooms/${currentRoomId}/voiceAlert`), { message: msg, ts: Date.now(), sender: userName });
@@ -1464,12 +1485,12 @@ function App() {
       alert("密碼不能為空！");
       return;
     }
-    
+
     // 同步更新房間主體與大廳摘要 (v16.9.2: 確保指揮部能看到更新後的密碼)
     const updates = {};
     updates[`rooms/${currentRoomId}/password`] = newPwd;
     updates[`roomSummaries/${currentRoomId}/password`] = newPwd;
-    
+
     update(ref(db), updates);
     setIsEditingPassword(false);
   };
@@ -1490,7 +1511,8 @@ function App() {
     update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), {
       lastKill: nowSynced,
       reporter: userName,
-      occupant: null
+      occupant: null,
+      isStolen: null // V17.9: 擊殺後自動重置「被偷」狀態
     });
 
     // 增加房間總擊殺 (同步更新詳情與摘要) - v15.0 原子累載
@@ -1667,6 +1689,18 @@ function App() {
       reporter: userName,
       timestamp: Date.now()
     });
+  };
+
+  const handleStolen = (chKey) => {
+    if (!currentRoomId || !currentBoss) return;
+    const nowSynced = getSyncedTime();
+    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), {
+      lastKill: nowSynced,
+      reporter: userName,
+      isStolen: true,
+      occupant: null
+    });
+    addSystemLog('STAMP', currentRoomId, `頻道 ${chKey.replace('CH', '')} BOSS 遭竊，啟動偵察倒數`);
   };
 
   const broadcastStatus = (ch) => {
@@ -2076,13 +2110,13 @@ function App() {
                       {isUsersLoading ? '刷新中...' : '🔄 重新整理'}
                     </button>
                     {isAdmin && (
-                      <button 
-                        className="btn-v9-report" 
-                        onClick={adminForceSyncRankings} 
+                      <button
+                        className="btn-v9-report"
+                        onClick={adminForceSyncRankings}
                         style={{ marginLeft: '10px', background: 'var(--pink-glow)', boxShadow: '0 0 10px var(--pink-glow)' }}
                         disabled={isUsersLoading}
                       >
-                         ⚡️ 戰略修復：重構排行榜
+                        ⚡️ 戰略修復：重構排行榜
                       </button>
                     )}
                   </div>
@@ -2159,8 +2193,8 @@ function App() {
           {adminTab === 'logs' && (
             <div className="admin-logs-view fade-in">
               <div className="logs-guide-btn-wrapper" style={{ marginBottom: '15px' }}>
-                <button 
-                  className="btn-liquid-glass lg-blue" 
+                <button
+                  className="btn-liquid-glass lg-blue"
                   onClick={() => setShowLogGuide(!showLogGuide)}
                   style={{ width: '100%', padding: '12px', fontSize: '14px', borderRadius: '12px' }}
                 >
@@ -2196,19 +2230,19 @@ function App() {
                 ) : (
                   <div className="logs-list">
                     {systemLogs.map(log => (
-                      <div key={log.id} className="log-item" style={{ 
-                        padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: '15px', alignItems: 'center' 
+                      <div key={log.id} className="log-item" style={{
+                        padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: '15px', alignItems: 'center'
                       }}>
                         <span className="log-ts" style={{ color: '#666', fontSize: '11px', whiteSpace: 'nowrap', minWidth: '80px' }}>
                           {new Date(log.ts).toLocaleString('zh-TW', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                         </span>
-                        <div className={`log-badge-v179 ${log.type?.toLowerCase()}`} style={{ 
-                          minWidth: '55px', textAlign: 'center', fontSize: '11px', fontWeight: '800', 
+                        <div className={`log-badge-v179 ${log.type?.toLowerCase()}`} style={{
+                          minWidth: '55px', textAlign: 'center', fontSize: '11px', fontWeight: '800',
                           padding: '3px 8px', borderRadius: '6px', color: '#fff',
-                          background: log.type === 'DELETE' ? 'var(--danger)' : 
-                                      (log.type === 'STAMP' ? 'var(--gold-dark)' : 
-                                      (log.type === 'CLEAR' || log.type === 'JOIN' || log.type === 'LEAVE' ? 'var(--ready)' : 
-                                      (log.type === 'KICK' ? 'var(--danger)' : 'rgba(255,255,255,0.1)')))
+                          background: log.type === 'DELETE' ? 'var(--danger)' :
+                            (log.type === 'STAMP' ? 'var(--gold-dark)' :
+                              (log.type === 'CLEAR' || log.type === 'JOIN' || log.type === 'LEAVE' ? 'var(--ready)' :
+                                (log.type === 'KICK' ? 'var(--danger)' : 'rgba(255,255,255,0.1)')))
                         }}>
                           {log.type}
                         </div>
@@ -2223,7 +2257,7 @@ function App() {
           )}
         </div>
 
-          {/* 移除原本這裡的 adminMenu 區塊 */}
+        {/* 移除原本這裡的 adminMenu 區塊 */}
       </div>
     );
   };
@@ -3217,12 +3251,11 @@ function App() {
                 <div className="v25-table">
                   <div id="kill-report-card" className="v25-table-container">
                     <div className="v25-table-header">
-                      <span>頻道</span>
+                      <span className="v25-col-ch">頻道</span>
                       <span>野王名稱</span>
-                      <span>倒數計時</span>
-                      <span>目前狀態</span>
-                      <span>回報者</span>
-                      <span style={{ textAlign: 'right' }}>頻道操作</span>
+                      <span className="v25-col-center">倒數計時</span>
+                      <span className="v25-col-center">目前狀態</span>
+                      <span className="v25-col-right">頻道操作</span>
                     </div>
 
                     {Object.keys(records).length === 0 ? (
@@ -3243,50 +3276,48 @@ function App() {
                           const isReady = remaining <= 0;
                           const occupant = records[ch].occupant || '';
 
-                        return (
-                          <div key={ch} className={`v25-row ${isReady ? 'is-ready' : ''} ${isNewFound ? 'is-new-found' : ''}`}>
-                            {/* 1. 頻道與佔位 */}
-                            <div className="v4-ch-group-v9">
-                              <span className="v5-ch-id">CH {ch.replace('CH', '').trim()}</span>
-                              <div className="v9-occupant-container">
-                                {occupant && <span className="v9-occupant-tag-v9">📍 {occupant}</span>}
+                          return (
+                            <div key={ch} className={`v25-row ${isReady ? 'is-ready' : ''} ${isNewFound ? 'is-new-found' : ''}`}>
+                              {/* 1. 頻道與佔位 */}
+                              <div className="v4-ch-group-v9">
+                                <span className="v5-ch-id">CH {ch.replace('CH', '').trim()}</span>
+                              </div>
+
+                              {/* 2. 野王名稱 */}
+                              <div className="v5-boss-name">{currentBoss.name}</div>
+
+                              {/* 3. 倒數計時 */}
+                              <div className="v5-timer-container v25-col-center">
+                                <div className={`v5-timer ${isReady ? 'ready' : ''} ${records[ch].isStolen ? 'is-stolen' : ''}`}>
+                                  {isReady ? 'READY' : formatTime(remaining * 60000)}
+                                </div>
+                                {records[ch].isStolen && isReady && (
+                                  <div className="stolen-warning fade-in">⚠️ 該BOSS被偷過請提前蹭蹭</div>
+                                )}
+                              </div>
+
+                              {/* 4. 目前狀態 */}
+                              <div className="v25-col-center">
+                                <span className={`v5-status-badge ${isReady ? (records[ch].isStolen ? 'v5-status-stolen' : 'v5-status-ready') : 'v5-status-waiting'}`}>
+                                  {isReady ? (records[ch].isStolen ? '🥷 蹭蹭中' : '已重生') : '重生中'}
+                                </span>
+                              </div>
+
+                              {/* 6. 頻道操作 */}
+                              <div className="v5-btn-set v25-col-right">
+                                <button className="btn-liquid-glass btn-lg-micro lg-purple" onClick={() => handleStationed(ch)}>已佔位</button>
+                                <button className="btn-liquid-glass btn-lg-micro lg-grey" onClick={() => handleStolen(ch)}>已被偷</button>
+                                {!isReady ? (
+                                  <button className="btn-liquid-glass btn-lg-micro lg-amber" onClick={() => handleRespawned(ch)}>已重生</button>
+                                ) : (
+                                  <button className="btn-liquid-glass btn-lg-micro lg-pink" onClick={() => addRecord(ch)}>已擊殺</button>
+                                )}
+                                <button className="btn-liquid-glass btn-lg-micro lg-cyan" onClick={() => broadcastStatus(ch)}>🔊 廣播</button>
+                                <button className="btn-liquid-glass btn-lg-micro lg-red" onClick={() => removeRecord(ch)}>刪除</button>
                               </div>
                             </div>
-
-                            {/* 2. 野王名稱 */}
-                            <div className="v5-boss-name">{currentBoss.name}</div>
-
-                            {/* 3. 倒數計時 */}
-                            <div className={`v5-timer ${isReady ? 'ready' : ''}`}>
-                              {isReady ? 'READY' : formatTime(remaining * 60000)}
-                            </div>
-
-                            {/* 4. 目前狀態 */}
-                            <div>
-                              <span className={`v5-status-badge ${isReady ? 'v5-status-ready' : 'v5-status-waiting'}`}>
-                                {isReady ? '已重生' : '重生中'}
-                              </span>
-                            </div>
-
-                            {/* 5. 回報者 */}
-                            <div className="v9-reporter-chip">
-                              👤 {records[ch].reporter}
-                            </div>
-
-                            {/* 6. 頻道操作 */}
-                            <div className="v5-btn-set">
-                              <button className="btn-liquid-glass btn-lg-micro lg-purple" onClick={() => handleStationed(ch)}>已佔位</button>
-                              {!isReady ? (
-                                <button className="btn-liquid-glass btn-lg-micro lg-amber" onClick={() => handleRespawned(ch)}>已重生</button>
-                              ) : (
-                                <button className="btn-liquid-glass btn-lg-micro lg-pink" onClick={() => addRecord(ch)}>已擊殺</button>
-                              )}
-                              <button className="btn-liquid-glass btn-lg-micro lg-cyan" onClick={() => broadcastStatus(ch)}>🔊 廣播</button>
-                              <button className="btn-liquid-glass btn-lg-micro lg-red" onClick={() => removeRecord(ch)}>刪除</button>
-                            </div>
-                          </div>
-                        );
-                      })
+                          );
+                        })
                     )}
                   </div>
                 </div>
@@ -3369,7 +3400,7 @@ function App() {
               <div className="nav-drawer-header">
                 <div className="nav-user-info">
                   <div className="nav-avatar">
-                   {renderAvatar(currentUser.photoURL, "nav-avatar-img")}
+                    {renderAvatar(currentUser.photoURL, "nav-avatar-img")}
                   </div>
                   <div className="nav-user-details">
                     <span className="nav-user-name">{userName}</span>
@@ -3378,7 +3409,7 @@ function App() {
                 </div>
                 <button className="nav-close-btn" onClick={() => setShowMobileNav(false)}>×</button>
               </div>
-              
+
               <div className="nav-drawer-links">
                 <button className={`nav-link ${view === 'lobby' ? 'active' : ''}`} onClick={() => { setView('lobby'); setShowMobileNav(false); }}>
                   🏠 返回大廳
@@ -3404,10 +3435,10 @@ function App() {
               </div>
             </div>
             {showMobileNav && <div className="nav-overlay" onClick={() => setShowMobileNav(false)}></div>}
-            
+
             {/* Mobile-only avatar shortcut in header */}
             <div className="mobile-user-shortcut" onClick={() => setView('profile')}>
-               {renderAvatar(currentUser.photoURL, "header-avatar-img-mobile")}
+              {renderAvatar(currentUser.photoURL, "header-avatar-img-mobile")}
             </div>
           </>
         )}
@@ -3741,10 +3772,10 @@ function App() {
                   <div className="v30-section-label">
                     <span className="dot volume"></span> 音量大小 (VOLUME: {Math.round(voiceSettings.volume * 100)}%)
                     <label className="v30-mute-shortcut">
-                      <input 
-                        type="checkbox" 
-                        checked={voiceSettings.isMuted} 
-                        onChange={e => setVoiceSettings(prev => ({ ...prev, isMuted: e.target.checked }))} 
+                      <input
+                        type="checkbox"
+                        checked={voiceSettings.isMuted}
+                        onChange={e => setVoiceSettings(prev => ({ ...prev, isMuted: e.target.checked }))}
                       />
                       <span className="mute-text">{voiceSettings.isMuted ? '🔇 已靜音' : '🔊 播放中'}</span>
                     </label>
@@ -3760,7 +3791,7 @@ function App() {
                     <div className="v30-range-track-bg"></div>
                     <div className="v30-volume-visual-bars">
                       {[...Array(10)].map((_, i) => (
-                        <div key={i} className={`bar ${voiceSettings.volume > (i/10) && !voiceSettings.isMuted ? 'active' : ''}`}></div>
+                        <div key={i} className={`bar ${voiceSettings.volume > (i / 10) && !voiceSettings.isMuted ? 'active' : ''}`}></div>
                       ))}
                     </div>
                   </div>
@@ -3804,8 +3835,8 @@ function App() {
                   <span>系統狀態: {voiceSettings.isMuted ? '靜音中 (MUTED)' : '待命 (READY)'}</span>
                 </div>
                 <div className="v30-action-group">
-                  <button 
-                    className="v30-btn-test" 
+                  <button
+                    className="v30-btn-test"
                     onClick={handleTestVoice}
                     disabled={voiceSettings.isMuted}
                   >
