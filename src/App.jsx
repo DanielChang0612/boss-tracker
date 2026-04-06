@@ -3281,6 +3281,7 @@ function App() {
                               {/* 1. 頻道與佔位 */}
                               <div className="v4-ch-group-v9">
                                 <span className="v5-ch-id">CH {ch.replace('CH', '').trim()}</span>
+                                {occupant && <div className="v9-occupant-tag" title={occupant}>📍 {occupant}</div>}
                               </div>
 
                               {/* 2. 野王名稱 */}
@@ -3305,7 +3306,7 @@ function App() {
 
                               {/* 6. 頻道操作 */}
                               <div className="v5-btn-set v25-col-right">
-                                <button className="btn-liquid-glass btn-lg-micro lg-purple" onClick={() => handleStationed(ch)}>已佔位</button>
+                                <button className={`btn-liquid-glass btn-lg-micro ${occupant === userName ? 'lg-fuchsia' : 'lg-purple'}`} onClick={() => handleStationed(ch)}>已佔位</button>
                                 <button className="btn-liquid-glass btn-lg-micro lg-grey" onClick={() => handleStolen(ch)}>已被偷</button>
                                 {!isReady ? (
                                   <button className="btn-liquid-glass btn-lg-micro lg-amber" onClick={() => handleRespawned(ch)}>已重生</button>
