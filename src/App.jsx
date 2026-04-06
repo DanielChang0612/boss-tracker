@@ -1497,10 +1497,19 @@ function App() {
 
   const handleStationed = (chKey) => {
     const records = currentRoom.records || {};
-    const isOccupiedByMe = records[chKey]?.occupant === userName;
-    update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), {
-      occupant: isOccupiedByMe ? null : userName // 點擊第二次解除佔位 (v2.3)
-    });
+    const rec = records[chKey] || {};
+    const isOccupiedByMe = rec.occupant === userName;
+    
+    if (!rec.occupant) {
+      // Step 0 -> Step 1 (Occupied)
+      update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { occupant: userName, isConfirmed: false });
+    } else if (isOccupiedByMe && !rec.isConfirmed) {
+      // Step 1 -> Step 2 (Confirmed)
+      update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { isConfirmed: true });
+    } else {
+      // Step 2 -> Step 0 (Clear)
+      update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { occupant: null, isConfirmed: false });
+    }
   };
 
   const addRecord = (manualChKey) => {
@@ -3274,14 +3283,24 @@ function App() {
                           const isNewFound = records[ch].lastKill === 0;
                           const remaining = isNewFound ? 0 : currentBoss.time - (now - records[ch].lastKill) / 60000;
                           const isReady = remaining <= 0;
-                          const occupant = records[ch].occupant || '';
+                          const rec = records[ch] || {};
+                          const occupant = rec.occupant || '';
+                          const isConfirmed = rec.isConfirmed || false;
 
                           return (
                             <div key={ch} className={`v25-row ${isReady ? 'is-ready' : ''} ${isNewFound ? 'is-new-found' : ''}`}>
                               {/* 1. 頻道與佔位 */}
                               <div className="v4-ch-group-v9">
                                 <span className="v5-ch-id">CH {ch.replace('CH', '').trim()}</span>
-                                {occupant && <div className="v9-occupant-tag" title={occupant}>📍 {occupant}</div>}
+                                {occupant && (
+                                  <div className="v9-occupant-tag" title={occupant}>
+                                    {isConfirmed ? (
+                                      <span style={{ color: '#00ff00', fontWeight: 'bold' }}>🟢 確認有料</span>
+                                    ) : (
+                                      <>📍 {occupant}</>
+                                    )}
+                                  </div>
+                                )}
                               </div>
 
                               {/* 2. 野王名稱 */}
@@ -3306,7 +3325,12 @@ function App() {
 
                               {/* 6. 頻道操作 */}
                               <div className="v5-btn-set v25-col-right">
-                                <button className={`btn-liquid-glass btn-lg-micro ${occupant === userName ? 'lg-fuchsia' : 'lg-purple'}`} onClick={() => handleStationed(ch)}>已佔位</button>
+                                <button 
+                                  className={`btn-liquid-glass btn-lg-micro ${occupant === userName ? (isConfirmed ? 'lg-green' : 'lg-fuchsia') : 'lg-purple'}`} 
+                                  onClick={() => handleStationed(ch)}
+                                >
+                                  {occupant === userName ? '已確認' : '已佔位'}
+                                </button>
                                 <button className="btn-liquid-glass btn-lg-micro lg-grey" onClick={() => handleStolen(ch)}>已被偷</button>
                                 {!isReady ? (
                                   <button className="btn-liquid-glass btn-lg-micro lg-amber" onClick={() => handleRespawned(ch)}>已重生</button>
