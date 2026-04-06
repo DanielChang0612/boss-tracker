@@ -1500,16 +1500,19 @@ function App() {
     const rec = records[chKey] || {};
     const isOccupiedByMe = rec.occupant === userName;
     
+    // 情境 1: 沒人佔位，開放任何人佔位
     if (!rec.occupant) {
-      // Step 0 -> Step 1 (Occupied)
       update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { occupant: userName, isConfirmed: false });
-    } else if (isOccupiedByMe && !rec.isConfirmed) {
-      // Step 1 -> Step 2 (Confirmed)
-      update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { isConfirmed: true });
-    } else {
-      // Step 2 -> Step 0 (Clear)
-      update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { occupant: null, isConfirmed: false });
+    } 
+    // 情境 2: 目前是我佔領的，可以循環切換狀態 (確認有料 -> 清空)
+    else if (isOccupiedByMe) {
+      if (!rec.isConfirmed) {
+        update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { isConfirmed: true });
+      } else {
+        update(ref(db, `rooms/${currentRoomId}/records/${chKey}`), { occupant: null, isConfirmed: false });
+      }
     }
+    // 情境 3: 別人佔領的，按鈕處於鎖定狀態 (由 UI 控制 disabled)
   };
 
   const addRecord = (manualChKey) => {
@@ -3326,10 +3329,15 @@ function App() {
                               {/* 6. 頻道操作 */}
                               <div className="v5-btn-set v25-col-right">
                                 <button 
-                                  className={`btn-liquid-glass btn-lg-micro ${occupant === userName ? (isConfirmed ? 'lg-green' : 'lg-fuchsia') : 'lg-purple'}`} 
+                                  className={`btn-liquid-glass btn-lg-micro ${occupant ? (occupant === userName ? (isConfirmed ? 'lg-green' : 'lg-fuchsia') : 'lg-locked-grey') : 'lg-purple'}`} 
                                   onClick={() => handleStationed(ch)}
+                                  style={{ 
+                                    opacity: (occupant && occupant !== userName) ? 0.4 : 1,
+                                    cursor: (occupant && occupant !== userName) ? 'not-allowed' : 'pointer'
+                                  }}
+                                  disabled={occupant && occupant !== userName}
                                 >
-                                  {occupant === userName ? '已確認' : '已佔位'}
+                                  {occupant ? (occupant === userName ? '已確認' : '已被佔') : '已佔位'}
                                 </button>
                                 <button className="btn-liquid-glass btn-lg-micro lg-grey" onClick={() => handleStolen(ch)}>已被偷</button>
                                 {!isReady ? (
