@@ -3298,9 +3298,9 @@ function App() {
                                 {occupant && (
                                   <div className="v9-occupant-tag" title={occupant}>
                                     {isConfirmed ? (
-                                      <span style={{ color: '#00ff00', fontWeight: 'bold' }}>🟢 確認有料</span>
+                                      <span key="confirmed" style={{ color: '#00ff00', fontWeight: 'bold' }}>🟢 確認有料</span>
                                     ) : (
-                                      <>📍 {occupant}</>
+                                      <span key="occupied">📍 {occupant}</span>
                                     )}
                                   </div>
                                 )}
@@ -3311,17 +3311,17 @@ function App() {
 
                               {/* 3. 倒數計時 */}
                               <div className="v5-timer-container v25-col-center">
-                                <div className={`v5-timer ${isReady ? 'ready' : ''} ${rec.isStolen ? 'is-stolen' : ''}`}>
+                                <div key="timer-display" className={`v5-timer ${isReady ? 'ready' : ''} ${rec.isStolen ? 'is-stolen' : ''}`}>
                                   {isReady ? 'READY' : formatTime(remaining * 60000)}
                                 </div>
                                 {rec.isStolen && isReady && (
-                                  <div className="stolen-warning fade-in">⚠️ 該BOSS被偷過請提前蹭蹭</div>
+                                  <div key="stolen-warning" className="stolen-warning fade-in">⚠️ 該BOSS被偷過請提前蹭蹭</div>
                                 )}
                               </div>
 
                               {/* 4. 目前狀態 */}
                               <div className="v25-col-center">
-                                <span className={`v5-status-badge ${isReady ? (rec.isStolen ? 'v5-status-stolen' : 'v5-status-ready') : 'v5-status-waiting'}`}>
+                                <span key="status-badge" className={`v5-status-badge ${isReady ? (rec.isStolen ? 'v5-status-stolen' : 'v5-status-ready') : 'v5-status-waiting'}`}>
                                   {isReady ? (rec.isStolen ? '🥷 蹭蹭中' : '已重生') : '重生中'}
                                 </span>
                               </div>
@@ -3341,9 +3341,9 @@ function App() {
                                 </button>
                                 <button className="btn-liquid-glass btn-lg-micro lg-grey" onClick={() => handleStolen(ch)}>已被偷</button>
                                 {!isReady ? (
-                                  <button className="btn-liquid-glass btn-lg-micro lg-amber" onClick={() => handleRespawned(ch)}>已重生</button>
+                                  <button key="btn-respawn" className="btn-liquid-glass btn-lg-micro lg-amber" onClick={() => handleRespawned(ch)}>已重生</button>
                                 ) : (
-                                  <button className="btn-liquid-glass btn-lg-micro lg-pink" onClick={() => addRecord(ch)}>已擊殺</button>
+                                  <button key="btn-kill" className="btn-liquid-glass btn-lg-micro lg-pink" onClick={() => addRecord(ch)}>已擊殺</button>
                                 )}
                                 <button className="btn-liquid-glass btn-lg-micro lg-cyan" onClick={() => broadcastStatus(ch)}>🔊 廣播</button>
                                 <button className="btn-liquid-glass btn-lg-micro lg-red" onClick={() => removeRecord(ch)}>刪除</button>
