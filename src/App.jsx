@@ -3280,10 +3280,10 @@ function App() {
                           return valA - valB;
                         })
                         .map(ch => {
-                          const isNewFound = records[ch].lastKill === 0;
-                          const remaining = isNewFound ? 0 : currentBoss.time - (now - records[ch].lastKill) / 60000;
-                          const isReady = remaining <= 0;
                           const rec = records[ch] || {};
+                          const isNewFound = rec.lastKill === 0;
+                          const remaining = isNewFound ? 0 : (currentBoss ? currentBoss.time - (now - (rec.lastKill || 0)) / 60000 : 0);
+                          const isReady = remaining <= 0;
                           const occupant = rec.occupant || '';
                           const isConfirmed = rec.isConfirmed || false;
 
@@ -3308,18 +3308,18 @@ function App() {
 
                               {/* 3. 倒數計時 */}
                               <div className="v5-timer-container v25-col-center">
-                                <div className={`v5-timer ${isReady ? 'ready' : ''} ${records[ch].isStolen ? 'is-stolen' : ''}`}>
+                                <div className={`v5-timer ${isReady ? 'ready' : ''} ${rec.isStolen ? 'is-stolen' : ''}`}>
                                   {isReady ? 'READY' : formatTime(remaining * 60000)}
                                 </div>
-                                {records[ch].isStolen && isReady && (
+                                {rec.isStolen && isReady && (
                                   <div className="stolen-warning fade-in">⚠️ 該BOSS被偷過請提前蹭蹭</div>
                                 )}
                               </div>
 
                               {/* 4. 目前狀態 */}
                               <div className="v25-col-center">
-                                <span className={`v5-status-badge ${isReady ? (records[ch].isStolen ? 'v5-status-stolen' : 'v5-status-ready') : 'v5-status-waiting'}`}>
-                                  {isReady ? (records[ch].isStolen ? '🥷 蹭蹭中' : '已重生') : '重生中'}
+                                <span className={`v5-status-badge ${isReady ? (rec.isStolen ? 'v5-status-stolen' : 'v5-status-ready') : 'v5-status-waiting'}`}>
+                                  {isReady ? (rec.isStolen ? '🥷 蹭蹭中' : '已重生') : '重生中'}
                                 </span>
                               </div>
 
