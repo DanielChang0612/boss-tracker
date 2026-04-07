@@ -1630,8 +1630,8 @@ body {
   box-shadow: 0 0 5px rgba(246, 207, 87, 0.3);
 }
 
-.v9-member-ctx-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.2s; }
-.v9-member-item:hover .v9-member-ctx-actions { opacity: 1; }
+.v9-member-ctx-actions { display: flex; gap: 4px; opacity: 1; transition: opacity 0.2s; }
+.v9-member-item .v9-member-ctx-actions { opacity: 1; }
 
 .v9-member-ctx-actions button {
   background: #222; border: 1px solid #333; border-radius: 4px; padding: 2px 5px;

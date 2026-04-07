@@ -1462,17 +1462,34 @@ function App() {
   };
 
   const removeMember = (targetName) => {
-    if (currentRoom.conductor !== userName) return;
+    if (!currentRoom || currentRoom.conductor !== userName) return;
     if (confirm(`確定要將 ${targetName} 請下車嗎？`)) {
-      remove(ref(db, `rooms/${currentRoomId}/members/${targetName}`));
-      addSystemLog('KICK', currentRoomId, `車長 ${userName} 將 ${targetName} 請下車`);
+      const updates = {};
+      updates[`rooms/${currentRoomId}/members/${targetName}`] = null;
+      
+      // 同步更新大廳摘要中的人數與名單
+      const currentMembers = Object.keys(currentRoom.members || {});
+      const nextMembers = currentMembers.filter(m => m !== targetName);
+      
+      updates[`roomSummaries/${currentRoomId}/onlineCount`] = nextMembers.length;
+      updates[`roomSummaries/${currentRoomId}/memberNames`] = nextMembers;
+
+      update(ref(db), updates).then(() => {
+        addSystemLog('KICK', currentRoomId, `車長 ${userName} 將 ${targetName} 請下車`);
+      });
     }
   };
 
   const transferConductor = (targetName) => {
-    if (currentRoom.conductor !== userName) return;
+    if (!currentRoom || currentRoom.conductor !== userName) return;
     if (confirm(`確定要將車長權限移交給 ${targetName} 嗎？`)) {
-      update(ref(db, `rooms/${currentRoomId}`), { conductor: targetName });
+      const updates = {};
+      updates[`rooms/${currentRoomId}/conductor`] = targetName;
+      updates[`roomSummaries/${currentRoomId}/conductor`] = targetName;
+      
+      update(ref(db), updates).then(() => {
+        addSystemLog('TRANSFER', currentRoomId, `原車長 ${userName} 已將權限移交給 ${targetName}`);
+      });
     }
   };
 
