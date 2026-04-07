@@ -294,6 +294,7 @@ function App() {
     return () => unsub();
   }, [currentUser, currentRoomId]);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState('allTime'); // 'allTime' | 'monthly'
+  const [leaderboardMetric, setLeaderboardMetric] = useState('kills'); // 'kills' | 'hours' (新增補回)
   const [leaderboardMonth, setLeaderboardMonth] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -787,7 +788,6 @@ function App() {
       let list = [];
       if (snap.exists()) {
         const rawData = snap.val();
-        // 將對象轉換為數組並進行本地排序 (前 50 名)
         list = Object.entries(rawData)
           .map(([uid, data]) => ({ uid, ...data }))
           .sort((a, b) => (b.v || 0) - (a.v || 0))
@@ -799,8 +799,12 @@ function App() {
         const myVal = leaderboardMetric === 'kills' ? (currentUser.profile.totalKills || 0) : (currentUser.profile.totalHours || 0);
         if (myVal > 0) {
           const already = list.find(u => u.uid === currentUser.uid);
-          if (!already) list.push({ uid: currentUser.uid, n: userName, a: currentUser.profile.photoURL, v: myVal });
-          else already.v = myVal;
+          if (!already) {
+            list.push({ uid: currentUser.uid, n: userName, p: currentUser.profile.photoURL, v: myVal });
+          } else {
+            already.v = myVal;
+            already.p = currentUser.profile.photoURL;
+          }
         }
       }
 
@@ -2483,7 +2487,7 @@ function App() {
               <div className="v9-podium-card v9-rank-2">
                 <div className="rank-label">NO.2 SILVER</div>
                 <div className="v9-avatar-wrap">
-                  {renderAvatar(podium[1].a, "podium-avatar", { width: '80px', height: '80px', border: '3px solid #C0C0C0' })}
+                  {renderAvatar(podium[1].p || podium[1].a, "podium-avatar", { width: '80px', height: '80px', border: '3px solid #C0C0C0' })}
                 </div>
                 <div className="podium-name">{podium[1].n}</div>
                 <div className="podium-value">{podium[1].v.toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></div>
@@ -2497,7 +2501,7 @@ function App() {
                 <div className="rank-label">NO.1 CHAMPION</div>
                 <div className="v9-avatar-wrap">
                   <div className="crown-icon" style={{ fontSize: '2.5rem', top: '-45px' }}>👑</div>
-                  {renderAvatar(podium[0].a, "podium-avatar", { width: '110px', height: '110px', border: '4px solid var(--gold)', boxShadow: '0 0 30px var(--gold-glow)' })}
+                  {renderAvatar(podium[0].p || podium[0].a, "podium-avatar", { width: '110px', height: '110px', border: '4px solid var(--gold)', boxShadow: '0 0 30px var(--gold-glow)' })}
                 </div>
                 <div className="podium-name" style={{ fontSize: '1.4rem' }}>{podium[0].n}</div>
                 <div className="podium-value" style={{ fontSize: '1.8rem' }}>{podium[0].v.toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></div>
@@ -2510,7 +2514,7 @@ function App() {
               <div className="v9-podium-card v9-rank-3">
                 <div className="rank-label">NO.3 BRONZE</div>
                 <div className="v9-avatar-wrap">
-                  {renderAvatar(podium[2].a, "podium-avatar", { width: '75px', height: '75px', border: '3px solid #CD7F32' })}
+                  {renderAvatar(podium[2].p || podium[2].a, "podium-avatar", { width: '75px', height: '75px', border: '3px solid #CD7F32' })}
                 </div>
                 <div className="podium-name">{podium[2].n}</div>
                 <div className="podium-value">{podium[2].v.toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></div>
@@ -2556,7 +2560,7 @@ function App() {
                   <td className="col-rank" style={{ textAlign: 'center' }}>#{i + 4}</td>
                   <td className="col-member">
                     <div className="admin-user-cell" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                      {renderAvatar(u.a, "admin-mini-avatar", { width: '36px', height: '36px' })}
+                      {renderAvatar(u.p || u.a, "admin-mini-avatar", { width: '36px', height: '36px' })}
                       <span style={{ fontWeight: '800' }}>{u.n}</span>
                     </div>
                   </td>
