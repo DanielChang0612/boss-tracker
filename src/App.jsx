@@ -275,11 +275,24 @@ function App() {
   const [showLoveModal, setShowLoveModal] = useState(false);
   const [loveStep, setLoveStep] = useState(1); // 1: 選擇房間, 2: 選擇頻道, 3: 毀滅確認
   const [selectedTargetRoomId, setSelectedTargetRoomId] = useState(null);
-  const [loveTransferMode, setLoveTransferMode] = useState('all'); // 'all' | 'odd' | 'even'
-  const [incomingLoveRequest, setIncomingLoveRequest] = useState(null); // 當前房內收到的愛
-
-  // --- 排行榜相關狀態 (v5.0 超輕量版) ---
-  const [leaderboardMetric, setLeaderboardMetric] = useState('kills'); // 'kills' | 'hours'
+  const [incomingLoveRequest, setIncomingLoveRequest] = useState(null); // v13.0: 接收方請求
+  const [loveTransferMode, setLoveTransferMode] = useState('all');     // v13.0: 傳送模式
+  useEffect(() => {
+    if (!currentUser) return;
+    // 1. 大廳摘要監聽器 (極速同步核心) - v15.2: 全面改為 onValue 智慧差量更新
+    const unsub = onValue(ref(db, 'roomSummaries'), (snap) => {
+      const data = snap.val() || {};
+      setRoomSummaries(data);
+      setLastSummariesUpdate(Date.now());
+      // 正在房內時，同步摘要進入 local room 狀態
+      if (currentRoomId && data[currentRoomId]) {
+        // v16.4: 摘要變動同步至房內 (已由另一個 useEffect 處理 setRooms)
+      }
+    }, (err) => {
+      console.warn("Lobby sync permission delay:", err.message);
+    });
+    return () => unsub();
+  }, [currentUser, currentRoomId]);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState('allTime'); // 'allTime' | 'monthly'
   const [leaderboardMonth, setLeaderboardMonth] = useState(() => {
     const d = new Date();
@@ -333,8 +346,10 @@ function App() {
   };
 
   useEffect(() => {
-    fetchRoomSummaries();
-  }, []);
+    if (currentUser) {
+      fetchRoomSummaries();
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     // 1. 大廳摘要監聽器 (極速同步核心) - v15.2: 全面改為 onValue 智慧差量更新
@@ -858,79 +873,97 @@ function App() {
   const getSyncedTime = () => Date.now() + serverOffset;
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const userRef = ref(db, `users/${user.uid}`);
-        const snapshot = await get(userRef);
-        let userData = snapshot.val();
-
-        if (!userData) {
-          // 如果是剛註冊的原生帳號，可能還沒有 displayName，優先使用 user.displayName 或預設值
-          const initialName = user.displayName || authEmail.split('@')[0] || '新隊員';
-          userData = {
-            uid: user.uid,
-            displayName: initialName,
-            photoURL: '🐶',
-            totalKills: 0,
-            totalHours: 0,
-            status: (user.uid === ADMIN_UID || user.uid === PIKA_UID) ? 'approved' : 'new',
-            createdAt: Date.now()
-          };
-          await update(userRef, userData);
-          // 同步更新 Firebase Profile 的 DisplayName (針對原生帳號)
-          if (!user.displayName) {
-            import('firebase/auth').then(({ updateProfile }) => {
-              updateProfile(user, { displayName: initialName });
-            });
-          }
-        }
-
-        const combinedUser = {
-          ...user,
-          photoURL: userData.photoURL || '🐶',
-          displayName: userData.displayName || user.displayName || '新隊員',
-          profile: userData
-        };
-        setCurrentUser(combinedUser);
-        setUserName(userData.displayName || user.displayName || '新隊員');
-
-        const isUserAdmin = user.uid === ADMIN_UID || user.uid === PIKA_UID;
-
-        if (user.uid !== PIKA_UID && userData.status === 'rejected') {
-          setView('landing');
-        } else if (!isUserAdmin && userData.status !== 'approved') {
-          setView('landing');
-        } else if (view === 'landing') {
-          const hashId = window.location.hash.slice(1);
-          if (hashId && rooms[hashId]) {
-            setCurrentRoomId(hashId);
-            setJoinNameInput(userData.displayName || '新隊員');
-            setView('join');
-          } else {
-            setView('lobby');
-          }
-        }
-      } else {
-        if (currentUser && currentRoomId && sessionStartTime) {
-          const delta = (Date.now() - sessionStartTime) / (1000 * 60 * 60);
-          const userRef = ref(db, `users/${currentUser.uid}`);
-          // V17.3: 刪除手動 cancel() 以防中斷通報
-          localStorage.removeItem('pikapi_last_room');
-          get(userRef).then(snap => {
-            const data = snap.val() || {};
-            const bossId = rooms[currentRoomId]?.bossId || 'unknown';
-            update(userRef, {
-              totalHours: (data.totalHours || 0) + delta,
-              [`bossStats/${bossId}/hours`]: (data.bossStats?.[bossId]?.hours || 0) + delta
-            });
-          });
-        }
-        setCurrentUser(null);
-        setView('landing');
-        setCurrentRoomId(null);
-        setSessionStartTime(null);
-      }
+    // 超時守衛：防止一直卡在「連線中」
+    const timeout = setTimeout(() => {
       setAuthChecking(false);
+    }, 5000); // 縮短為 5 秒
+    return () => clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      try {
+        if (user) {
+          const userRef = ref(db, `users/${user.uid}`);
+          const snapshot = await get(userRef);
+          let userData = snapshot.val();
+
+          if (!userData) {
+            // 如果是剛註冊的原生帳號，可能還沒有 displayName，優先使用 user.displayName 或預設值
+            const initialName = user.displayName || authEmail.split('@')[0] || '新隊員';
+            userData = {
+              uid: user.uid,
+              displayName: initialName,
+              photoURL: '🐶',
+              totalKills: 0,
+              totalHours: 0,
+              status: (user.uid === ADMIN_UID || user.uid === PIKA_UID) ? 'approved' : 'new',
+              createdAt: Date.now()
+            };
+            await update(userRef, userData);
+            // 同步更新 Firebase Profile 的 DisplayName (針對原生帳號)
+            if (!user.displayName) {
+              const { updateProfile } = await import('firebase/auth');
+              await updateProfile(user, { displayName: initialName });
+            }
+          }
+
+          const combinedUser = {
+            ...user,
+            photoURL: userData.photoURL || '🐶',
+            displayName: userData.displayName || user.displayName || '新隊員',
+            profile: userData
+          };
+          setCurrentUser(combinedUser);
+          setUserName(userData.displayName || user.displayName || '新隊員');
+
+          const isUserAdmin = user.uid === ADMIN_UID || user.uid === PIKA_UID;
+
+          if (user.uid !== PIKA_UID && userData.status === 'rejected') {
+            setView('landing');
+          } else if (!isUserAdmin && userData.status !== 'approved') {
+            setView('landing');
+          } else if (view === 'landing') {
+            const hashId = window.location.hash.slice(1);
+            if (hashId && rooms[hashId]) {
+              setCurrentRoomId(hashId);
+              setJoinNameInput(userData.displayName || '新隊員');
+              setView('join');
+            } else {
+              setView('lobby');
+            }
+          }
+        } else {
+          if (currentUser && currentRoomId && sessionStartTime) {
+            const delta = (Date.now() - sessionStartTime) / (1000 * 60 * 60);
+            const userRef = ref(db, `users/${currentUser.uid}`);
+            localStorage.removeItem('pikapi_last_room');
+            get(userRef).then(snap => {
+              const data = snap.val() || {};
+              const bossId = rooms[currentRoomId]?.bossId || 'unknown';
+              update(userRef, {
+                totalHours: (data.totalHours || 0) + delta,
+                [`bossStats/${bossId}/hours`]: (data.bossStats?.[bossId]?.hours || 0) + delta
+              });
+            }).catch(e => console.warn("Logout cleanup permission denied:", e));
+          }
+          setCurrentUser(null);
+          setView('landing');
+          setCurrentRoomId(null);
+          setSessionStartTime(null);
+        }
+      } catch (err) {
+        console.error("Auth initialization database error:", err);
+        // 如果連讀取自己的 UserProfile 都失敗，說明 Database 規則完全沒開
+        if (err.message.includes("permission_denied")) {
+          console.warn("CRITICAL: Database rules are blocking user access.");
+        }
+        // 即便報錯也允許跳轉到 Landing 讓使用者至少能看到介面
+        setCurrentUser(user ? { ...user, profile: { status: 'error' } } : null);
+        setView('landing');
+      } finally {
+        setAuthChecking(false);
+      }
     });
     return () => unsubscribe();
   }, [view, rooms, currentRoomId]);
@@ -1206,8 +1239,14 @@ function App() {
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (error) {
-      console.error("登入失敗", error);
-      alert("登入失敗，請重試。");
+      console.error("[Auth] Login failed:", error);
+      if (error.code === 'auth/popup-blocked') {
+        alert("登入視窗被瀏覽器攔截了，請允許本網站顯示彈出視窗。");
+      } else if (error.code === 'auth/network-request-failed') {
+        alert("網路連線失敗，請檢查您的連線。");
+      } else {
+        alert(`登入發生錯誤 (${error.code})，請稍後再試。`);
+      }
     }
   };
 
