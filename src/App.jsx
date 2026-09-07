@@ -4,6 +4,8 @@ import { ref, onValue, set, update, remove, onDisconnect, get, off, query, order
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import html2canvas from 'html2canvas';
 import './membership.css';
+import HubView from './components/HubView';
+import ExpHelper from './components/ExpHelper/ExpHelper';
 
 // 6 個萌系動物預設選項 (v4.8)
 // 預設頭像 Emoji 清單 (v2.2)
@@ -934,7 +936,7 @@ function App() {
               setJoinNameInput(userData.displayName || '新隊員');
               setView('join');
             } else {
-              setView('lobby');
+              setView('hub');
             }
           }
         } else {
@@ -2718,6 +2720,29 @@ function App() {
       }
       const userStatus = currentUser?.profile?.status;
 
+      if (view === 'hub') {
+        const rank = getRankInfo(currentUser.profile?.totalKills, currentUser.profile?.totalHours);
+        const roleInfo = getRoleInfo(currentUser.uid);
+        return (
+          <HubView
+            currentUser={currentUser}
+            userName={userName}
+            rankInfo={rank}
+            roleInfo={roleInfo}
+            onNavigate={(targetView) => setView(targetView)}
+            onLogout={handleLogout}
+          />
+        );
+      }
+      if (view === 'exp-helper') {
+        return (
+          <ExpHelper
+            currentUser={currentUser}
+            userName={userName}
+            onBackToHub={() => setView('hub')}
+          />
+        );
+      }
       if (view === 'admin' && isAdmin) return renderAdminDashboard();
       if (view === 'leaderboard') return renderLeaderboardView();
 
@@ -3446,8 +3471,8 @@ function App() {
               <span className="hamburger-line"></span>
             </button>
           )}
-          <div className="header-logo" onClick={() => (currentUser ? setView('lobby') : setView('landing'))}>
-            <span>PiKaPi</span> <span className="boss-highlight">BOSS</span> Tracker
+          <div className="header-logo" onClick={() => (currentUser ? setView('hub') : setView('landing'))}>
+            <span>PiKaPi</span> <span className="boss-highlight">PORTAL</span>
           </div>
         </div>
 
@@ -3462,6 +3487,54 @@ function App() {
           <>
             <div className="desktop-nav header-actions">
               <button
+                className={`hub-nav-btn ${view === 'hub' ? 'active' : ''}`}
+                onClick={() => setView('hub')}
+                style={{
+                  background: view === 'hub' ? 'rgba(0, 229, 255, 0.2)' : 'rgba(255,255,255,0.05)',
+                  color: view === 'hub' ? '#00e5ff' : '#cbd5e0',
+                  border: view === 'hub' ? '1px solid rgba(0, 229, 255, 0.4)' : '1px solid rgba(255,255,255,0.1)',
+                  padding: '6px 12px',
+                  borderRadius: '10px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  fontSize: '13px'
+                }}
+              >
+                🏠 服務總部
+              </button>
+              <button
+                className={`boss-nav-btn ${view === 'lobby' || view === 'room' ? 'active' : ''}`}
+                onClick={() => setView('lobby')}
+                style={{
+                  background: (view === 'lobby' || view === 'room') ? 'rgba(255, 65, 108, 0.2)' : 'rgba(255,255,255,0.05)',
+                  color: (view === 'lobby' || view === 'room') ? '#ff5252' : '#cbd5e0',
+                  border: (view === 'lobby' || view === 'room') ? '1px solid rgba(255, 65, 108, 0.4)' : '1px solid rgba(255,255,255,0.1)',
+                  padding: '6px 12px',
+                  borderRadius: '10px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  fontSize: '13px'
+                }}
+              >
+                👑 打王趣
+              </button>
+              <button
+                className={`exp-nav-btn ${view === 'exp-helper' ? 'active' : ''}`}
+                onClick={() => setView('exp-helper')}
+                style={{
+                  background: view === 'exp-helper' ? 'rgba(255, 215, 0, 0.2)' : 'rgba(255,255,255,0.05)',
+                  color: view === 'exp-helper' ? '#ffd700' : '#cbd5e0',
+                  border: view === 'exp-helper' ? '1px solid rgba(255, 215, 0, 0.4)' : '1px solid rgba(255,255,255,0.1)',
+                  padding: '6px 12px',
+                  borderRadius: '10px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  fontSize: '13px'
+                }}
+              >
+                ⚡ 經驗小助手
+              </button>
+              <button
                 className={`leaderboard-hall-btn ${view === 'leaderboard' ? 'active' : ''}`}
                 onClick={() => setView('leaderboard')}
               >
@@ -3471,7 +3544,7 @@ function App() {
                 className={`medal-hall-btn ${view === 'medals' ? 'active' : ''}`}
                 onClick={() => setView('medals')}
               >
-                🎖️ 勳章總覽
+                🎖️ 勳章
               </button>
               {isAdmin && (
                 <button
@@ -3504,8 +3577,14 @@ function App() {
               </div>
 
               <div className="nav-drawer-links">
+                <button className={`nav-link ${view === 'hub' ? 'active' : ''}`} onClick={() => { setView('hub'); setShowMobileNav(false); }}>
+                  🏠 服務總部 (Hub)
+                </button>
                 <button className={`nav-link ${view === 'lobby' ? 'active' : ''}`} onClick={() => { setView('lobby'); setShowMobileNav(false); }}>
-                  🏠 返回大廳
+                  👑 打王趣 (Boss Tracker)
+                </button>
+                <button className={`nav-link ${view === 'exp-helper' ? 'active' : ''}`} onClick={() => { setView('exp-helper'); setShowMobileNav(false); }}>
+                  ⚡ 經驗小助手 (EXP Helper)
                 </button>
                 <button className={`nav-link ${view === 'profile' ? 'active' : ''}`} onClick={() => { setView('profile'); setShowMobileNav(false); }}>
                   👤 個人檔案
