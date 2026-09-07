@@ -424,22 +424,6 @@ export default function ExpViewfinder({
     });
   };
 
-  // 快捷對位：快速移動到遊戲右下角 (楓之谷標準經驗值條常見位置)
-  const handleSnapToBottomRight = () => {
-    const { width: vidW, height: vidH } = getVideoDimensions();
-    const boxW = Math.round(Math.min(220, vidW * 0.3));
-    const boxH = Math.round(Math.min(36, vidH * 0.08));
-    const boxX = Math.round(vidW - boxW - (vidW * 0.04));
-    const boxY = Math.round(vidH - boxH - (vidH * 0.015));
-
-    onCropChange({
-      x: Math.max(0, boxX),
-      y: Math.max(0, boxY),
-      w: boxW,
-      h: boxH,
-    });
-  };
-
   return (
     <div className="viewfinder-wrapper" ref={containerRef}>
       {/* 取景器頂部提示列 */}
@@ -450,19 +434,11 @@ export default function ExpViewfinder({
         <div className="viewfinder-actions">
           <button
             className="exp-btn-glass"
-            style={{ padding: '3px 10px', fontSize: '11px', borderRadius: '6px' }}
-            onClick={handleSnapToBottomRight}
-            title="將選取框自動放置於畫面右下角 (楓之谷經驗條常見位置)"
-          >
-            📍 貼齊右下角
-          </button>
-          <button
-            className="exp-btn-glass"
-            style={{ padding: '3px 10px', fontSize: '11px', borderRadius: '6px', color: '#00e676' }}
+            style={{ padding: '3px 12px', fontSize: '11px', borderRadius: '6px', color: '#00e676', borderColor: 'rgba(0, 230, 118, 0.4)' }}
             onClick={onAutoDetect}
-            title="利用綠色括號特徵自動偵測 EXP 座標"
+            title="直接鎖定精準座標 (X: 740, Y: 763, W: 96, H: 24)"
           >
-            🎯 智慧偵測
+            🎯 智慧偵測 (鎖定 740, 763)
           </button>
         </div>
       </div>

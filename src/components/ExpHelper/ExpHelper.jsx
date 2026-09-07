@@ -33,8 +33,8 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
   // 螢幕分享與 OCR 串流
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [zoomScale, setZoomScale] = useState(2.0);
-  // 預設框選比例 (寬度 160, 高度 32)
-  const [cropRegion, setCropRegion] = useState({ x: 430, y: 4, w: 160, h: 32 });
+  // 預設鎖定指定經驗條座標 (X: 740px, Y: 763px, 寬度 W: 96px, 高度 H: 24px)
+  const [cropRegion, setCropRegion] = useState({ x: 740, y: 763, w: 96, h: 24 });
   const [ocrLogs, setOcrLogs] = useState([]);
   const [lastOcrResult, setLastOcrResult] = useState(null);
 
@@ -232,26 +232,12 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
     processOcrFrame(newCrop);
   };
 
-  // 🎯 一鍵自動定位 EXP 條
-  const handleAutoDetectExp = () => {
-    const video = videoRef.current;
-    if (!video || video.readyState < 2) {
-      addLog('請先啟動視窗畫面分享，方可執行自動偵測', 'warn');
-      return;
-    }
-    const offCanvas = offscreenCanvasRef.current;
-    offCanvas.width = video.videoWidth;
-    offCanvas.height = video.videoHeight;
-    const offCtx = offCanvas.getContext('2d');
-    offCtx.drawImage(video, 0, 0);
+  // 🎯 智慧偵測：直接鎖定精準方位與大小 (X座標: 740px, Y座標: 763px, 寬度 W: 96px, 高度 H: 24px)
+  const TARGET_EXP_REGION = { x: 740, y: 763, w: 96, h: 24 };
 
-    const region = autoDetectExpRegion(offCanvas);
-    if (region) {
-      handleCropChange(region);
-      addLog(`🎯 成功自動鎖定 EXP 條位置！(X: ${region.x}, Y: ${region.y}, W: ${region.w}, H: ${region.h})`, 'success');
-    } else {
-      addLog('在底部未找到特徵括號，建議直接在上方畫面上拖曳拉出選取框', 'warn');
-    }
+  const handleAutoDetectExp = () => {
+    handleCropChange(TARGET_EXP_REGION);
+    addLog('🎯 智慧偵測成功鎖定座標：X: 740, Y: 763, 寬度: 96, 高度: 24', 'success');
   };
 
   // 啟動螢幕畫面分享

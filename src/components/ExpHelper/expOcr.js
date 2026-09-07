@@ -47,16 +47,22 @@ export async function initOCR() {
   }
 }
 
+export const DEFAULT_EXP_REGION = { x: 740, y: 763, w: 96, h: 24 };
+
 /**
  * 🎯 自動定位 EXP 條演算法 (Auto-Detect EXP Region)
- * 鎖定遊戲視窗底部狀態列區域，精準辨識萊姆綠括號 [...] 與經驗條
+ * 鎖定遊戲視窗精準座標 (X: 740, Y: 763, W: 96, H: 24)
  */
 export function autoDetectExpRegion(canvas) {
-  if (!canvas) return null;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!canvas) return DEFAULT_EXP_REGION;
   const w = canvas.width;
   const h = canvas.height;
-  if (w <= 0 || h <= 0) return null;
+  if (w <= 0 || h <= 0) return DEFAULT_EXP_REGION;
+
+  // 若尺寸吻合標準解析度，直接回傳精確校準座標
+  if (w >= 780 && h >= 740) {
+    return DEFAULT_EXP_REGION;
+  }
 
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
