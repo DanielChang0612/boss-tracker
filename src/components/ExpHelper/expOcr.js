@@ -49,23 +49,29 @@ export async function initOCR() {
 
 /**
  * 🎯 自動定位 EXP 條演算法 (Auto-Detect EXP Region)
- * 在傳入的視窗/全螢幕 Canvas 中，自動尋找綠色括號 [...] 與經驗條，精準框出 EXP 座標！
+ * 鎖定遊戲視窗底部狀態列區域，精準辨識萊姆綠括號 [...] 與經驗條
  */
 export function autoDetectExpRegion(canvas) {
   if (!canvas) return null;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const w = canvas.width;
   const h = canvas.height;
+  if (w <= 0 || h <= 0) return null;
+
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
 
-  // 1. 搜尋具有萊姆綠括號特徵的直行
-  const greenCols = [];
-  for (let x = 0; x < w; x++) {
+  // 1. 僅在視窗的底部區域 (最後 140px 或高度 > 60%) 搜尋
+  // 避開所有全螢幕樹木、草地、綠水靈與技能特效干擾
+  const searchStartY = Math.max(0, h <= 80 ? 0 : Math.max(Math.floor(h * 0.65), h - 140));
+  const searchStartX = Math.max(0, w <= 200 ? 0 : Math.floor(w * 0.35));
+
+  const rawCols = [];
+  for (let x = searchStartX; x < w; x++) {
     let greenCount = 0;
     let minY = h;
     let maxY = 0;
-    for (let y = 0; y < h; y++) {
+    for (let y = searchStartY; y < h; y++) {
       const idx = (y * w + x) * 4;
       const r = data[idx];
       const g = data[idx + 1];
@@ -76,33 +82,36 @@ export function autoDetectExpRegion(canvas) {
         if (y > maxY) maxY = y;
       }
     }
-    if (greenCount >= 5 && (maxY - minY) >= 6) {
-      greenCols.push({ x, minY, maxY });
+    // 括號高度特徵 (支援 1x~3x UI 縮放)
+    if (greenCount >= 4 && (maxY - minY) >= 5 && (maxY - minY) <= 28) {
+      rawCols.push({ x, minY, maxY });
     }
   }
 
-  if (greenCols.length < 2) return null;
+  if (rawCols.length < 2) return null;
 
   // 2. 合併相鄰直行
-  const merged = [];
-  for (const c of greenCols) {
-    if (merged.length === 0 || c.x - merged[merged.length - 1].x > 3) {
-      merged.push(c);
+  const clusters = [];
+  for (const c of rawCols) {
+    if (clusters.length === 0 || c.x - clusters[clusters.length - 1].x > 3) {
+      clusters.push(c);
     }
   }
 
-  if (merged.length < 2) return null;
+  if (clusters.length < 2) return null;
 
-  // 3. 取最後一對括號 (EXP 條通常位於儀表板最右側)
-  const b1 = merged[merged.length - 2];
-  const b2 = merged[merged.length - 1];
+  // 3. 取最右側的一對括號 (EXP 百分比永遠位於儀表板最右側)
+  const b1 = clusters[clusters.length - 2];
+  const b2 = clusters[clusters.length - 1];
 
-  const cropX = Math.max(0, b1.x - 72);
-  const cropY = Math.max(0, b1.minY - 5);
-  const cropW = Math.min(w - cropX, (b2.x - cropX) + 20);
-  const cropH = Math.min(h - cropY, 32);
+  const bracketH = b1.maxY - b1.minY + 1;
+  const expW = Math.max(75, Math.round(bracketH * 9));
+  const cropX = Math.max(0, b1.x - expW);
+  const cropY = Math.max(0, b1.minY - Math.round(bracketH * 0.4));
+  const cropW = Math.min(w - cropX, (b2.x - cropX) + Math.max(20, Math.round(bracketH * 2.5)));
+  const cropH = Math.min(h - cropY, bracketH + Math.round(bracketH * 2.2));
 
-  return { x: cropX, y: cropY, w: cropW, h: cropH };
+  return { x: cropX, y: cropY, w: cropW, h: Math.max(24, cropH) };
 }
 
 /**

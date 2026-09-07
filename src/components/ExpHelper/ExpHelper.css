@@ -754,3 +754,235 @@
   font-size: 12px;
   color: #64748b;
 }
+
+/* ========================================================
+   取景器與拖曳框選樣式 (Viewfinder & Interactive Drag Box)
+   ======================================================== */
+.viewfinder-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(12, 16, 28, 0.7);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.viewfinder-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.viewfinder-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #00e5ff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.viewfinder-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.viewfinder-canvas-container {
+  width: 100%;
+  position: relative;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8);
+}
+
+.viewfinder-canvas {
+  width: 100%;
+  display: block;
+  image-rendering: auto;
+}
+
+.viewfinder-hint-floating {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  padding: 4px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  font-size: 11px;
+  color: #a0aec0;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* 底部特寫放大鏡與狀態列 */
+.viewfinder-detail-bar {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .viewfinder-detail-bar {
+    grid-template-columns: 1fr;
+  }
+}
+
+.magnifier-box {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.magnifier-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #8892b0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.zoom-chips-mini {
+  display: flex;
+  gap: 4px;
+}
+
+.zoom-chip-mini {
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #a0aec0;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.zoom-chip-mini.active {
+  background: rgba(0, 229, 255, 0.2);
+  color: #00e5ff;
+  border-color: rgba(0, 229, 255, 0.4);
+}
+
+.magnifier-viewport {
+  width: 100%;
+  height: 68px;
+  background: #000;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.magnifier-canvas {
+  image-rendering: pixelated;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* 即時辨識回饋卡 */
+.ocr-feedback-card {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.feedback-status-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.feedback-success {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.feedback-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.feedback-glow-dot {
+  width: 8px;
+  height: 8px;
+  background: #00e676;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #00e676;
+}
+
+.feedback-highlight {
+  font-size: 12px;
+  font-weight: 800;
+  color: #00e676;
+}
+
+.feedback-level {
+  font-size: 11px;
+  font-weight: 800;
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+
+.feedback-numbers {
+  font-size: 16px;
+  font-family: 'Geist Mono', monospace;
+  color: #fff;
+}
+
+.feedback-numbers b {
+  color: #00e5ff;
+}
+
+.feedback-pct {
+  margin-left: 6px;
+  color: #fbbf24;
+  font-size: 14px;
+}
+
+.feedback-pending {
+  font-size: 12px;
+  color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+.feedback-spinner {
+  font-size: 16px;
+  animation: pulse-spin 2s infinite;
+}
+
+@keyframes pulse-spin {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+

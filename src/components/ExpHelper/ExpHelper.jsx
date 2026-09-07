@@ -33,9 +33,27 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
   // 螢幕分享與 OCR 串流
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [zoomScale, setZoomScale] = useState(2.0);
-  // 預設框選比例更貼合常見的 EXP 條 (寬度 140, 高度 32)
-  const [cropRegion, setCropRegion] = useState({ x: 430, y: 4, w: 140, h: 32 });
+  // 預設框選比例 (寬度 160, 高度 32)
+  const [cropRegion, setCropRegion] = useState({ x: 430, y: 4, w: 160, h: 32 });
   const [ocrLogs, setOcrLogs] = useState([]);
+  const [lastOcrResult, setLastOcrResult] = useState(null);
+
+  // 同步 Refs 杜絕 setInterval 閉包過期問題
+  const cropRegionRef = useRef(cropRegion);
+  const isManualLevelRef = useRef(isManualLevel);
+  const levelRef = useRef(level);
+
+  useEffect(() => {
+    cropRegionRef.current = cropRegion;
+  }, [cropRegion]);
+
+  useEffect(() => {
+    isManualLevelRef.current = isManualLevel;
+  }, [isManualLevel]);
+
+  useEffect(() => {
+    levelRef.current = level;
+  }, [level]);
 
   // Document Picture-in-Picture 狀態
   const [isPipOpen, setIsPipOpen] = useState(false);
@@ -150,6 +168,70 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
     addLog(`已手動鎖定等級: Lv.${manualLvl} (升級需 ${formatNumber(row.expToNext)})`, 'info');
   };
 
+  // 執行單次圖像辨識 (提供即時拖曳選取、自動偵測與定時循環呼叫)
+  const processOcrFrame = async (targetCrop) => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) return;
+
+    const activeCrop = targetCrop || cropRegionRef.current;
+    const offCanvas = offscreenCanvasRef.current;
+    offCanvas.width = video.videoWidth;
+    offCanvas.height = video.videoHeight;
+    const offCtx = offCanvas.getContext('2d');
+    offCtx.drawImage(video, 0, 0);
+
+    // 建立裁切的原始點陣 Canvas (供給 Pixel Matcher)
+    const cropCanvas = offscreenCropRef.current;
+    cropCanvas.width = Math.max(10, Math.min(activeCrop.w, offCanvas.width - activeCrop.x));
+    cropCanvas.height = Math.max(10, Math.min(activeCrop.h, offCanvas.height - activeCrop.y));
+    const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
+    cropCtx.drawImage(
+      offCanvas,
+      activeCrop.x,
+      activeCrop.y,
+      cropCanvas.width,
+      cropCanvas.height,
+      0,
+      0,
+      cropCanvas.width,
+      cropCanvas.height
+    );
+
+    // 執行文字行隔離 (去進度條)
+    const processed = preprocessCanvas(offCanvas, activeCrop);
+
+    // 渲染至放大鏡預覽窗
+    if (previewCanvasRef.current) {
+      const pCanvas = previewCanvasRef.current;
+      pCanvas.width = processed.width;
+      pCanvas.height = processed.height;
+      const pCtx = pCanvas.getContext('2d');
+      pCtx.imageSmoothingEnabled = false;
+      pCtx.drawImage(processed, 0, 0);
+    }
+
+    // 執行圖像辨識 (優先點陣比對，備援 Tesseract)
+    try {
+      const manualLvl = isManualLevelRef.current ? levelRef.current : null;
+      const result = await recognizeExpCanvas(processed, manualLvl, cropCanvas);
+      if (result && result.currentExp !== null) {
+        setLastOcrResult(result);
+        handleExpUpdate(result.currentExp, result.rawPercent);
+        const methodTag = result.isPixelMatch ? '💎 [點陣精準比對]' : '🔍 [Tesseract OCR]';
+        addLog(`${methodTag} EXP ${formatNumber(result.currentExp)} [${result.correctedPercent}%] (Lv.${result.level})`, 'success');
+      }
+    } catch (err) {
+      console.warn('OCR error:', err);
+    }
+  };
+
+  // 🎯 拖曳框選或調整區域改變時的回呼 (立即更新 Ref、State 並觸發一次即時解析)
+  const handleCropChange = (newCrop) => {
+    cropRegionRef.current = newCrop;
+    setCropRegion(newCrop);
+    processOcrFrame(newCrop);
+  };
+
   // 🎯 一鍵自動定位 EXP 條
   const handleAutoDetectExp = () => {
     const video = videoRef.current;
@@ -158,12 +240,17 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
       return;
     }
     const offCanvas = offscreenCanvasRef.current;
+    offCanvas.width = video.videoWidth;
+    offCanvas.height = video.videoHeight;
+    const offCtx = offCanvas.getContext('2d');
+    offCtx.drawImage(video, 0, 0);
+
     const region = autoDetectExpRegion(offCanvas);
     if (region) {
-      setCropRegion(region);
+      handleCropChange(region);
       addLog(`🎯 成功自動鎖定 EXP 條位置！(X: ${region.x}, Y: ${region.y}, W: ${region.w}, H: ${region.h})`, 'success');
     } else {
-      addLog('在當前畫面未找到特徵綠色括號 [...]，請手動確認遊戲介面是否可見', 'warn');
+      addLog('在底部未找到特徵括號，建議直接在上方畫面上拖曳拉出選取框', 'warn');
     }
   };
 
@@ -185,13 +272,13 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
       await videoRef.current.play();
 
       setIsScreenSharing(true);
-      addLog('🖥️ 視窗串流已啟動，開始即時框選辨識', 'success');
+      addLog('🖥️ 視窗串流已啟動，請在畫面取景器中拖曳框選 EXP 條', 'success');
 
       stream.getVideoTracks()[0].onended = () => {
         stopScreenShare();
       };
 
-      // 串流啟動 1 秒後，嘗試自動抓取一次 EXP 條座標
+      // 串流啟動 1 秒後，自動執行一次智慧偵測
       setTimeout(() => {
         handleAutoDetectExp();
       }, 1000);
@@ -223,67 +310,18 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
   // 定時取格與 OCR 循環
   const runScreenOcrLoop = () => {
     if (ocrTimerRef.current) clearInterval(ocrTimerRef.current);
-
-    ocrTimerRef.current = setInterval(async () => {
-      const video = videoRef.current;
-      if (!video || video.readyState < 2) return;
-
-      const offCanvas = offscreenCanvasRef.current;
-      offCanvas.width = video.videoWidth;
-      offCanvas.height = video.videoHeight;
-      const offCtx = offCanvas.getContext('2d');
-      offCtx.drawImage(video, 0, 0);
-
-      // 建立裁切的原始點陣 Canvas (供給 Pixel Matcher)
-      const cropCanvas = offscreenCropRef.current;
-      cropCanvas.width = Math.max(10, Math.min(cropRegion.w, offCanvas.width - cropRegion.x));
-      cropCanvas.height = Math.max(10, Math.min(cropRegion.h, offCanvas.height - cropRegion.y));
-      const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
-      cropCtx.drawImage(
-        offCanvas,
-        cropRegion.x,
-        cropRegion.y,
-        cropCanvas.width,
-        cropCanvas.height,
-        0,
-        0,
-        cropCanvas.width,
-        cropCanvas.height
-      );
-
-      // 執行文字行隔離 (去進度條)
-      const processed = preprocessCanvas(offCanvas, cropRegion);
-
-      // 渲染至右側預覽窗
-      if (previewCanvasRef.current) {
-        const pCanvas = previewCanvasRef.current;
-        pCanvas.width = processed.width;
-        pCanvas.height = processed.height;
-        const pCtx = pCanvas.getContext('2d');
-        pCtx.imageSmoothingEnabled = false;
-        pCtx.drawImage(processed, 0, 0);
-      }
-
-      // 執行圖像辨識 (優先點陣比對，備援 Tesseract)
-      try {
-        const result = await recognizeExpCanvas(processed, isManualLevel ? level : null, cropCanvas);
-        if (result && result.currentExp !== null) {
-          handleExpUpdate(result.currentExp, result.rawPercent);
-          const methodTag = result.isPixelMatch ? '💎 [點陣精準比對]' : '🔍 [Tesseract OCR]';
-          addLog(`${methodTag} EXP ${formatNumber(result.currentExp)} [${result.correctedPercent}%] (Lv.${result.level})`, 'success');
-        }
-      } catch (err) {
-        console.warn('OCR error:', err);
-      }
-    }, 1600);
+    ocrTimerRef.current = setInterval(() => {
+      processOcrFrame();
+    }, 1500);
   };
 
-  // 調整框選區域
+  // 調整框選區域 (D-Pad 微調)
   const handleAdjustCrop = (axis, delta) => {
-    setCropRegion((prev) => ({
-      ...prev,
-      [axis]: Math.max(0, prev[axis] + delta),
-    }));
+    const nextCrop = {
+      ...cropRegionRef.current,
+      [axis]: Math.max(0, cropRegionRef.current[axis] + delta),
+    };
+    handleCropChange(nextCrop);
   };
 
   // 貼上截圖監聽
@@ -520,8 +558,11 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
           zoomScale={zoomScale}
           setZoomScale={setZoomScale}
           cropRegion={cropRegion}
+          onCropChange={handleCropChange}
           onAdjustCrop={handleAdjustCrop}
           ocrLogs={ocrLogs}
+          videoRef={videoRef}
+          lastOcrResult={lastOcrResult}
         />
       )}
 

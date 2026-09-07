@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { formatDuration, formatEta, formatNumber } from './expCalculator';
+import ExpViewfinder from './ExpViewfinder';
 
 export default function ExpDashboard({
   trackingState,
@@ -27,8 +28,11 @@ export default function ExpDashboard({
   zoomScale,
   setZoomScale,
   cropRegion,
+  onCropChange,
   onAdjustCrop,
   ocrLogs,
+  videoRef,
+  lastOcrResult,
 }) {
   const [manualExpInput, setManualExpInput] = useState('');
   const [manualPctInput, setManualPctInput] = useState('');
@@ -225,69 +229,44 @@ export default function ExpDashboard({
         </div>
       </div>
 
-      {/* 右側：即時預覽、畫面分享與微調區 */}
+      {/* 右側：即時取景器、畫面分享與微調區 */}
       <div className="exp-monitor-panel">
         <div className="monitor-box">
-          <div className="preview-container">
-            <div className="preview-header">
-              <div className="preview-title">
-                <span>📹</span> 實時截圖預覽 (Live Preview)
-              </div>
-              <div className="zoom-chips">
-                {[1.5, 2.0, 2.5].map((scale) => (
-                  <button
-                    key={scale}
-                    className={`zoom-chip ${zoomScale === scale ? 'active' : ''}`}
-                    onClick={() => setZoomScale(scale)}
-                  >
-                    {scale}x
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="preview-viewport">
-              <canvas
-                ref={previewCanvasRef}
-                className="preview-canvas"
-                style={{ transform: `scale(${zoomScale})` }}
-              />
-              {!isScreenSharing && (
-                <div className="preview-empty-text">
-                  <span>點擊下方按鈕啟動視窗分享或直接貼上截圖</span>
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
-              {!isScreenSharing ? (
-                <button className="exp-btn exp-btn-primary" style={{ flex: 1 }} onClick={onStartScreenShare}>
-                  🖥️ 選擇遊戲視窗 (Screen Capture)
-                </button>
-              ) : (
-                <>
-                  <button className="exp-btn exp-btn-green" style={{ flex: 1 }} onClick={onAutoDetectExp} title="自動尋找畫面中的綠色括號與 EXP 條">
-                    🎯 自動定位 EXP 條
-                  </button>
-                  <button className="exp-btn exp-btn-red" style={{ flex: 1 }} onClick={onStopScreenShare}>
-                    ⏹ 停止串流
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* 置頂畫中畫獨立小窗快捷啟動按鈕 */}
-            <div style={{ marginTop: '8px' }}>
-              <button
-                className="exp-btn exp-btn-glass"
-                style={{ width: '100%', borderColor: '#00e5ff', color: '#00e5ff' }}
-                onClick={onLaunchPip}
-                title="在作業系統桌面開啟永遠置頂的浮動小視窗，可直接拖曳到楓之谷遊戲畫面上！"
-              >
-                🎮 {isPipOpen ? '關閉遊戲置頂懸浮窗 (PiP)' : '啟動遊戲置頂懸浮窗 (Picture-in-Picture)'}
+          {/* 視窗串流與置頂懸浮窗頂部控制列 */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+            {!isScreenSharing ? (
+              <button className="exp-btn exp-btn-primary" style={{ flex: 1.2, padding: '12px 18px', fontSize: '14px' }} onClick={onStartScreenShare}>
+                🖥️ 選擇遊戲視窗 (Screen Capture)
               </button>
-            </div>
+            ) : (
+              <button className="exp-btn exp-btn-red" style={{ flex: 1 }} onClick={onStopScreenShare}>
+                ⏹ 停止畫面串流
+              </button>
+            )}
+
+            <button
+              className="exp-btn exp-btn-glass"
+              style={{ flex: 1, borderColor: isPipOpen ? '#00e676' : '#00e5ff', color: isPipOpen ? '#00e676' : '#00e5ff' }}
+              onClick={onLaunchPip}
+              title="在作業系統桌面開啟永遠置頂的浮動小視窗，可直接拖曳到楓之谷遊戲畫面上！"
+            >
+              🎮 {isPipOpen ? '關閉置頂小窗' : '遊戲置頂小窗 (PiP)'}
+            </button>
           </div>
+
+          {/* 🎯 核心取景器：支援在視窗畫面上直接拖曳框選經驗值範圍 */}
+          <ExpViewfinder
+            videoRef={videoRef}
+            isScreenSharing={isScreenSharing}
+            cropRegion={cropRegion}
+            onCropChange={onCropChange}
+            previewCanvasRef={previewCanvasRef}
+            lastOcrResult={lastOcrResult}
+            onAutoDetect={onAutoDetectExp}
+            zoomScale={zoomScale}
+            setZoomScale={setZoomScale}
+            onAdjustCrop={onAdjustCrop}
+          />
         </div>
 
         {/* D-Pad 十字鍵座標微調區 */}
