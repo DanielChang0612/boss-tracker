@@ -8,7 +8,7 @@ import { preprocessCanvas, recognizeExpCanvas, findBestLevelFit, autoDetectExpRe
 import expData from '../../data/exp_table.json';
 import './ExpHelper.css';
 
-export default function ExpHelper({ currentUser, userName, onBackToHub }) {
+export default function ExpHelper({ currentUser, userName, onBackToHub, onSyncExp }) {
   // 檢視模式: 'dashboard' | 'compact'
   const [viewMode, setViewMode] = useState('dashboard');
 
@@ -59,6 +59,9 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
   const [isPipOpen, setIsPipOpen] = useState(false);
   const [pipContainer, setPipContainer] = useState(null);
   const pipWindowRef = useRef(null);
+
+  // 背景同步戰報 Toast 狀態
+  const [syncToast, setSyncToast] = useState(null);
 
   // DOM 參考
   const videoRef = useRef(null);
@@ -132,7 +135,28 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
   // 停止記錄 (F11)
   const handleStopTracking = () => {
     setTrackingState('IDLE');
-    addLog(`⏹ 停止記錄，統計時長: ${formatDuration(stats.elapsedSeconds)}，累計獲得: +${formatNumber(stats.gainedExp)} EXP`, 'info');
+    const gained = stats.gainedExp;
+    const dur = stats.elapsedSeconds;
+    addLog(`⏹ 停止記錄，統計時長: ${formatDuration(dur)}，累計獲得: +${formatNumber(gained)} EXP`, 'info');
+
+    // 點擊「停止記錄」自動於背景上傳至公會榮譽榜
+    if (typeof onSyncExp === 'function') {
+      onSyncExp({
+        gainedExp: gained,
+        elapsedSeconds: dur,
+        est60Min: stats.est60Min,
+        level: level,
+        correctedPercent: correctedPercent
+      });
+    }
+    setSyncToast({
+      visible: true,
+      message: '本次練功戰果已上傳至公會榮譽榜！',
+      detail: `收穫 +${formatNumber(gained)} EXP ｜ 時長 ${formatDuration(dur)} ｜ 時均 +${formatNumber(stats.est60Min)}/hr`
+    });
+    setTimeout(() => {
+      setSyncToast(null);
+    }, 4500);
   };
 
   // 暫停 / 繼續 (F7)
@@ -493,8 +517,26 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
     }
   };
 
+  const handleBackToHub = () => {
+    if (trackingState !== 'IDLE') {
+      handleStopTracking();
+    }
+    if (onBackToHub) onBackToHub();
+  };
+
   return (
     <div className="exp-helper-container">
+      {/* 背景同步成功 Toast 提示 (低流量自動上傳) */}
+      {syncToast?.visible && (
+        <div className="exp-sync-toast fade-in">
+          <div className="toast-icon">⚡</div>
+          <div className="toast-content">
+            <div className="toast-title">🎉 {syncToast.message}</div>
+            <div className="toast-detail">{syncToast.detail}</div>
+          </div>
+        </div>
+      )}
+
       {/* 頂部導航控制列 */}
       <div className="exp-top-bar">
         <div className="exp-brand-group">
@@ -522,7 +564,7 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
             {viewMode === 'dashboard' ? '📱 簡約懸浮模式 (F9)' : '🖥️ 儀表板模式 (F9)'}
           </button>
 
-          <button className="exp-btn exp-btn-glass" onClick={onBackToHub}>
+          <button className="exp-btn exp-btn-glass" onClick={handleBackToHub}>
             🏠 返回服務大廳
           </button>
         </div>

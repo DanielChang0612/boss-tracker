@@ -3197,6 +3197,56 @@ body {
 .leaderboard-title-group h2 { font-size: 2rem; font-weight: 950; margin: 0; }
 .leaderboard-title-group .subtitle { font-size: 0.9rem; opacity: 0.6; margin-top: 5px; }
 
+.leaderboard-category-tabs {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin: 10px auto 35px;
+  padding: 6px;
+  background: rgba(10, 10, 18, 0.6);
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  width: fit-content;
+  backdrop-filter: blur(10px);
+}
+
+.category-tab-btn {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 1rem;
+  font-weight: 800;
+  padding: 10px 24px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.category-tab-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.category-tab-btn.active {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 143, 0, 0.25));
+  border-color: var(--gold);
+  color: var(--gold);
+  font-weight: 950;
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.25);
+  transform: translateY(-1px);
+}
+
+.category-tab-btn.active.category-exp {
+  background: linear-gradient(135deg, rgba(0, 230, 118, 0.2), rgba(0, 200, 83, 0.25));
+  border-color: #00e676;
+  color: #00e676;
+  box-shadow: 0 0 20px rgba(0, 230, 118, 0.25);
+}
+
 .leaderboard-main-controls {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 50px; flex-wrap: wrap; gap: 20px;

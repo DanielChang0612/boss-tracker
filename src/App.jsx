@@ -295,14 +295,18 @@ function App() {
     });
     return () => unsub();
   }, [currentUser, currentRoomId]);
+  const [leaderboardCategory, setLeaderboardCategory] = useState('boss'); // 'boss' | 'exp'
   const [leaderboardPeriod, setLeaderboardPeriod] = useState('allTime'); // 'allTime' | 'monthly'
   const [leaderboardMetric, setLeaderboardMetric] = useState('kills'); // 'kills' | 'hours' (新增補回)
+  const [leaderboardExpMetric, setLeaderboardExpMetric] = useState('gainedExp'); // 'gainedExp' | 'peakPace' | 'hours' | 'level'
+  const [leaderboardExpPeriod, setLeaderboardExpPeriod] = useState('today'); // 'today' | 'monthly' | 'allTime'
   const [leaderboardMonth, setLeaderboardMonth] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
   const [leaderboardData, setLeaderboardData] = useState([]);
   const [availableRankMonths, setAvailableRankMonths] = useState([]);
+  const [availableExpMonths, setAvailableExpMonths] = useState([]);
   const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(false);
   const lastAlertTs = useRef(Date.now()); // V15.8: 語音警報過濾器
   const isAdmin = currentUser?.uid === ADMIN_UID || currentUser?.uid === PIKA_UID;
@@ -667,6 +671,135 @@ function App() {
     }
   };
 
+  /**
+   * [經驗練功同步器] 練功戰果原子同步匯流排 (v1.0)
+   * 當玩家點擊停止記錄時背景上傳，超低流量原子累積，零多餘讀取
+   */
+  const syncExpToRankings = async (uid, name, photoURL, expSession) => {
+    if (!uid || !expSession) return;
+    try {
+      const { gainedExp = 0, elapsedSeconds = 0, est60Min = 0, level = 1, correctedPercent = 0 } = expSession;
+
+      const now = Date.now();
+      const d = new Date(now);
+      const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const currentMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const sessionHours = Number((elapsedSeconds / 3600).toFixed(2));
+      const compositeLevelScore = level + (correctedPercent / 100);
+
+      const updates = {};
+
+      // 1. 今日衝刺 (Daily)
+      if (gainedExp > 0) {
+        updates[`rankings/exp/daily/${todayStr}/gainedExp/${uid}/v`] = increment(gainedExp);
+        updates[`rankings/exp/daily/${todayStr}/gainedExp/${uid}/n`] = name;
+        updates[`rankings/exp/daily/${todayStr}/gainedExp/${uid}/p`] = photoURL || '';
+        updates[`rankings/exp/daily/${todayStr}/gainedExp/${uid}/lvl`] = level;
+        updates[`rankings/exp/daily/${todayStr}/gainedExp/${uid}/pct`] = correctedPercent;
+      }
+      if (sessionHours > 0) {
+        updates[`rankings/exp/daily/${todayStr}/hours/${uid}/v`] = increment(sessionHours);
+        updates[`rankings/exp/daily/${todayStr}/hours/${uid}/n`] = name;
+        updates[`rankings/exp/daily/${todayStr}/hours/${uid}/p`] = photoURL || '';
+        updates[`rankings/exp/daily/${todayStr}/hours/${uid}/lvl`] = level;
+        updates[`rankings/exp/daily/${todayStr}/hours/${uid}/pct`] = correctedPercent;
+      }
+      if (est60Min > 0) {
+        updates[`rankings/exp/daily/${todayStr}/peakPace/${uid}/v`] = est60Min;
+        updates[`rankings/exp/daily/${todayStr}/peakPace/${uid}/n`] = name;
+        updates[`rankings/exp/daily/${todayStr}/peakPace/${uid}/p`] = photoURL || '';
+        updates[`rankings/exp/daily/${todayStr}/peakPace/${uid}/lvl`] = level;
+        updates[`rankings/exp/daily/${todayStr}/peakPace/${uid}/pct`] = correctedPercent;
+      }
+      if (level > 0) {
+        updates[`rankings/exp/daily/${todayStr}/level/${uid}/v`] = compositeLevelScore;
+        updates[`rankings/exp/daily/${todayStr}/level/${uid}/n`] = name;
+        updates[`rankings/exp/daily/${todayStr}/level/${uid}/p`] = photoURL || '';
+        updates[`rankings/exp/daily/${todayStr}/level/${uid}/lvl`] = level;
+        updates[`rankings/exp/daily/${todayStr}/level/${uid}/pct`] = correctedPercent;
+      }
+
+      // 2. 月度賽季 (Monthly)
+      if (gainedExp > 0) {
+        updates[`rankings/exp/monthly/${currentMonth}/gainedExp/${uid}/v`] = increment(gainedExp);
+        updates[`rankings/exp/monthly/${currentMonth}/gainedExp/${uid}/n`] = name;
+        updates[`rankings/exp/monthly/${currentMonth}/gainedExp/${uid}/p`] = photoURL || '';
+        updates[`rankings/exp/monthly/${currentMonth}/gainedExp/${uid}/lvl`] = level;
+        updates[`rankings/exp/monthly/${currentMonth}/gainedExp/${uid}/pct`] = correctedPercent;
+      }
+      if (sessionHours > 0) {
+        updates[`rankings/exp/monthly/${currentMonth}/hours/${uid}/v`] = increment(sessionHours);
+        updates[`rankings/exp/monthly/${currentMonth}/hours/${uid}/n`] = name;
+        updates[`rankings/exp/monthly/${currentMonth}/hours/${uid}/p`] = photoURL || '';
+        updates[`rankings/exp/monthly/${currentMonth}/hours/${uid}/lvl`] = level;
+        updates[`rankings/exp/monthly/${currentMonth}/hours/${uid}/pct`] = correctedPercent;
+      }
+      if (est60Min > 0) {
+        updates[`rankings/exp/monthly/${currentMonth}/peakPace/${uid}/v`] = est60Min;
+        updates[`rankings/exp/monthly/${currentMonth}/peakPace/${uid}/n`] = name;
+        updates[`rankings/exp/monthly/${currentMonth}/peakPace/${uid}/p`] = photoURL || '';
+        updates[`rankings/exp/monthly/${currentMonth}/peakPace/${uid}/lvl`] = level;
+        updates[`rankings/exp/monthly/${currentMonth}/peakPace/${uid}/pct`] = correctedPercent;
+      }
+      if (level > 0) {
+        updates[`rankings/exp/monthly/${currentMonth}/level/${uid}/v`] = compositeLevelScore;
+        updates[`rankings/exp/monthly/${currentMonth}/level/${uid}/n`] = name;
+        updates[`rankings/exp/monthly/${currentMonth}/level/${uid}/p`] = photoURL || '';
+        updates[`rankings/exp/monthly/${currentMonth}/level/${uid}/lvl`] = level;
+        updates[`rankings/exp/monthly/${currentMonth}/level/${uid}/pct`] = correctedPercent;
+      }
+
+      // 3. 總累積 (All-Time)
+      if (gainedExp > 0) {
+        updates[`rankings/exp/allTime/gainedExp/${uid}/v`] = increment(gainedExp);
+        updates[`rankings/exp/allTime/gainedExp/${uid}/n`] = name;
+        updates[`rankings/exp/allTime/gainedExp/${uid}/p`] = photoURL || '';
+        updates[`rankings/exp/allTime/gainedExp/${uid}/lvl`] = level;
+        updates[`rankings/exp/allTime/gainedExp/${uid}/pct`] = correctedPercent;
+      }
+      if (sessionHours > 0) {
+        updates[`rankings/exp/allTime/hours/${uid}/v`] = increment(sessionHours);
+        updates[`rankings/exp/allTime/hours/${uid}/n`] = name;
+        updates[`rankings/exp/allTime/hours/${uid}/p`] = photoURL || '';
+        updates[`rankings/exp/allTime/hours/${uid}/lvl`] = level;
+        updates[`rankings/exp/allTime/hours/${uid}/pct`] = correctedPercent;
+      }
+      if (est60Min > 0) {
+        updates[`rankings/exp/allTime/peakPace/${uid}/v`] = est60Min;
+        updates[`rankings/exp/allTime/peakPace/${uid}/n`] = name;
+        updates[`rankings/exp/allTime/peakPace/${uid}/p`] = photoURL || '';
+        updates[`rankings/exp/allTime/peakPace/${uid}/lvl`] = level;
+        updates[`rankings/exp/allTime/peakPace/${uid}/pct`] = correctedPercent;
+      }
+      if (level > 0) {
+        updates[`rankings/exp/allTime/level/${uid}/v`] = compositeLevelScore;
+        updates[`rankings/exp/allTime/level/${uid}/n`] = name;
+        updates[`rankings/exp/allTime/level/${uid}/p`] = photoURL || '';
+        updates[`rankings/exp/allTime/level/${uid}/lvl`] = level;
+        updates[`rankings/exp/allTime/level/${uid}/pct`] = correctedPercent;
+      }
+
+      // 4. 元數據與個人 Profile
+      updates[`rankings/meta/availableExpMonths/${currentMonth}`] = true;
+      if (gainedExp > 0) {
+        updates[`users/${uid}/profile/totalExpGained`] = increment(gainedExp);
+      }
+      if (sessionHours > 0) {
+        updates[`users/${uid}/profile/totalExpHours`] = increment(sessionHours);
+      }
+      if (level > 0) {
+        updates[`users/${uid}/profile/currentLevel`] = level;
+        updates[`users/${uid}/profile/currentPercent`] = correctedPercent;
+      }
+      updates[`users/${uid}/profile/lastExpUpdate`] = now;
+
+      await update(ref(db), updates);
+      console.log(`[ExpSync] Successfully synced: +${gainedExp} EXP, ${sessionHours}h, pace: ${est60Min}/hr, Lv.${level}`);
+    } catch (err) {
+      console.error("[ExpSync Error]", err);
+    }
+  };
+
   const fetchAllUsers = async (searchTerm = '') => {
     if (!isAdmin) return;
     setIsUsersLoading(true);
@@ -757,31 +890,47 @@ function App() {
     }
   };
 
-  // --- 排行榜數據抓取 (V10-ULTIMATE: 5s 戰略同步序列) ---
-  const fetchLeaderboard = async (isManual = false) => {
-    if (!isManual) return;
-    if (syncCooldown > 0) {
+  // --- 排行榜數據抓取 (V10-ULTIMATE: 支援野王榜與經驗榜) ---
+  const fetchLeaderboard = async (isManual = false, force = false) => {
+    if (!isManual && !force) return;
+    if (!force && syncCooldown > 0) {
       alert(`⚠️ 系統冷卻中，請等待 ${syncCooldown} 秒後再試。`);
       return;
     }
 
     setIsLeaderboardLoading(true);
-    setSyncCountdown(5);
+    setSyncCountdown(force ? 0 : 3);
 
     // 啟動倒數計時器
-    const countdownInterval = setInterval(() => {
-      setSyncCountdown(p => (p > 0 ? p - 1 : 0));
-    }, 1000);
+    let countdownInterval;
+    if (!force) {
+      countdownInterval = setInterval(() => {
+        setSyncCountdown(p => (p > 0 ? p - 1 : 0));
+      }, 1000);
+    }
 
     try {
-      const path = leaderboardPeriod === 'allTime'
-        ? `rankings/allTime/${leaderboardMetric}`
-        : `rankings/monthly/${leaderboardMonth}/${leaderboardMetric}`;
+      let path;
+      if (leaderboardCategory === 'exp') {
+        if (leaderboardExpPeriod === 'today') {
+          const d = new Date();
+          const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          path = `rankings/exp/daily/${todayStr}/${leaderboardExpMetric}`;
+        } else if (leaderboardExpPeriod === 'monthly') {
+          path = `rankings/exp/monthly/${leaderboardMonth}/${leaderboardExpMetric}`;
+        } else {
+          path = `rankings/exp/allTime/${leaderboardExpMetric}`;
+        }
+      } else {
+        path = leaderboardPeriod === 'allTime'
+          ? `rankings/allTime/${leaderboardMetric}`
+          : `rankings/monthly/${leaderboardMonth}/${leaderboardMetric}`;
+      }
 
       const q = ref(db, path);
 
-      // 1. 同步雲端
-      if (currentUser && currentUser.profile) {
+      // 1. 同步雲端 (野王榜)
+      if (leaderboardCategory === 'boss' && currentUser && currentUser.profile) {
         await syncToRankings(currentUser.uid, userName, currentUser.profile.photoURL, 0, 0);
       }
 
@@ -796,8 +945,8 @@ function App() {
           .slice(0, 50);
       }
 
-      // 3. 戰略注入 (確保豪豪一定在第一名，無視延遲)
-      if (currentUser && currentUser.profile) {
+      // 3. 戰略注入 (野王榜注入)
+      if (leaderboardCategory === 'boss' && currentUser && currentUser.profile) {
         const myVal = leaderboardMetric === 'kills' ? (currentUser.profile.totalKills || 0) : (currentUser.profile.totalHours || 0);
         if (myVal > 0) {
           const already = list.find(u => u.uid === currentUser.uid);
@@ -811,19 +960,20 @@ function App() {
       }
 
       // 4. 更新 UI 並揭開領獎台
-      list.sort((a, b) => b.v - a.v);
+      list.sort((a, b) => (b.v || 0) - (a.v || 0));
       setLeaderboardData(list);
       setHasInitialRankingsFetch(true);
 
-      // 5. 確保視覺分析倒數至少維持 5 秒
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      setSyncCooldown(60);
+      // 5. 若手動點擊同步，保留適度冷卻防刷
+      if (isManual && !force) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        setSyncCooldown(30);
+      }
     } catch (e) {
       console.error("[Fetch Error]", e);
       alert("📡 戰略同步失敗，請檢查網路連線。");
     } finally {
-      clearInterval(countdownInterval);
+      if (countdownInterval) clearInterval(countdownInterval);
       setSyncCountdown(0);
       setIsLeaderboardLoading(false);
     }
@@ -837,7 +987,7 @@ function App() {
     }
   }, [syncCooldown]);
 
-  // 初始載入可用月份索引
+  // 初始載入可用月份索引 (野王榜 & 經驗榜)
   useEffect(() => {
     const monthsRef = ref(db, 'rankings/meta/availableMonths');
     const unsubscribe = onValue(monthsRef, (snap) => {
@@ -846,6 +996,25 @@ function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const expMonthsRef = ref(db, 'rankings/meta/availableExpMonths');
+    const unsubscribe = onValue(expMonthsRef, (snap) => {
+      const data = snap.val() || {};
+      const currentMonth = getYearMonth();
+      const months = Object.keys(data);
+      if (!months.includes(currentMonth)) months.push(currentMonth);
+      setAvailableExpMonths(months.sort().reverse());
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 當殿堂已解鎖時，切換分類/指標/週期自動加載數據 (零等待體驗)
+  useEffect(() => {
+    if (view === 'leaderboard' && hasInitialRankingsFetch) {
+      fetchLeaderboard(true, true);
+    }
+  }, [leaderboardCategory, leaderboardMetric, leaderboardPeriod, leaderboardExpMetric, leaderboardExpPeriod, leaderboardMonth]);
 
   useEffect(() => {
     // 監聽大廳連線狀態並同步心跳 (全屏監控 v11.5: Fix 0/4)
@@ -2428,6 +2597,7 @@ function App() {
     const podium = leaderboardData.slice(0, 3);
     const rest = leaderboardData.slice(3);
     const isKills = leaderboardMetric === 'kills';
+    const isExp = leaderboardCategory === 'exp';
 
     const renderPodiumPlaceholder = (rankText) => (
       <div className="podium-placeholder">
@@ -2435,34 +2605,135 @@ function App() {
       </div>
     );
 
+    const renderPodiumValue = (v, obj) => {
+      if (isExp) {
+        if (leaderboardExpMetric === 'gainedExp') {
+          return <>{`+${Math.round(v || 0).toLocaleString()}`} <small>EXP</small></>;
+        }
+        if (leaderboardExpMetric === 'peakPace') {
+          return <>{`+${Math.round(v || 0).toLocaleString()}`} <small>/HR</small></>;
+        }
+        if (leaderboardExpMetric === 'hours') {
+          return <>{(v || 0).toFixed(1)} <small>HRS</small></>;
+        }
+        if (leaderboardExpMetric === 'level') {
+          const lvl = obj?.lvl || Math.floor(v || 1);
+          const pct = obj?.pct !== undefined ? obj.pct : ((v - Math.floor(v)) * 100);
+          return <>Lv.{lvl} <small>({Number(pct).toFixed(2)}%)</small></>;
+        }
+      }
+      return <>{(v || 0).toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></>;
+    };
+
+    const renderTableValue = (v, obj) => {
+      if (isExp) {
+        if (leaderboardExpMetric === 'gainedExp') {
+          return `+${Math.round(v || 0).toLocaleString()} EXP`;
+        }
+        if (leaderboardExpMetric === 'peakPace') {
+          return `+${Math.round(v || 0).toLocaleString()} /hr`;
+        }
+        if (leaderboardExpMetric === 'hours') {
+          return `${(v || 0).toFixed(1)} hrs`;
+        }
+        if (leaderboardExpMetric === 'level') {
+          const lvl = obj?.lvl || Math.floor(v || 1);
+          const pct = obj?.pct !== undefined ? obj.pct : ((v - Math.floor(v)) * 100);
+          return `Lv. ${lvl} (${Number(pct).toFixed(2)}%)`;
+        }
+      }
+      return `${(v || 0).toFixed(isKills ? 0 : 1)} ${isKills ? 'KILLS' : 'HRS'}`;
+    };
+
+    const renderHeroValue = () => {
+      if (!currentUser) return null;
+      if (isExp) {
+        const myEntry = leaderboardData.find(u => u.uid === currentUser.uid);
+        if (myEntry) return renderTableValue(myEntry.v, myEntry);
+        if (leaderboardExpMetric === 'gainedExp') {
+          return `+${(currentUser.profile?.totalExpGained || 0).toLocaleString()} EXP`;
+        }
+        if (leaderboardExpMetric === 'hours') {
+          return `${(currentUser.profile?.totalExpHours || 0).toFixed(1)} hrs`;
+        }
+        if (leaderboardExpMetric === 'level') {
+          return `Lv. ${currentUser.profile?.currentLevel || 50} (${(currentUser.profile?.currentPercent || 0).toFixed(2)}%)`;
+        }
+        return '尚無記錄';
+      }
+      return isKills ? (currentUser.profile?.totalKills || 0) : (currentUser.profile?.totalHours || 0).toFixed(1);
+    };
+
     return (
       <div className="leaderboard-view-container glass-panel fade-in">
         <div className="leaderboard-header">
           <button className="btn-secondary-glass" onClick={() => setView('lobby')}>⬅ 返回大廳中心</button>
           <div className="leaderboard-title-group">
-            <h2 className="boss-highlight">PiKaPi 榮譽殿堂 <small style={{ fontSize: '0.6rem', opacity: 0.5, verticalAlign: 'middle' }}>V10-ULTIMATE</small></h2>
-            <p className="subtitle">匯集頂尖戰意與不朽戰果的殿堂</p>
+            <h2 className="boss-highlight">
+              PiKaPi 榮譽殿堂 <small style={{ fontSize: '0.6rem', opacity: 0.6, verticalAlign: 'middle' }}>{isExp ? '⚡ 經驗練功榜' : '⚔️ 野王擊殺榜'}</small>
+            </h2>
+            <p className="subtitle">{isExp ? '紀錄公會成員練功極限時速與不懈奮戰戰果' : '匯集頂尖戰意與不朽戰果的殿堂'}</p>
           </div>
           <div className="leaderboard-period-select">
             <button className={`sync-btn-v6 ${syncCooldown > 0 ? 'is-cooling' : ''}`} onClick={() => fetchLeaderboard(true)} disabled={isLeaderboardLoading || syncCooldown > 0}>
-              {isLeaderboardLoading ? `⏳ 同步中 (${syncCountdown}s)...` : (syncCooldown > 0 ? `📡 冷卻中 (${syncCooldown}s)` : '📡 同步數據 (V10)')}
+              {isLeaderboardLoading ? `⏳ 同步中 (${syncCountdown}s)...` : (syncCooldown > 0 ? `📡 冷卻中 (${syncCooldown}s)` : '📡 同步數據')}
             </button>
           </div>
         </div>
 
+        {/* 一級分類切換標籤：野王擊殺榜 vs 經驗練功榜 */}
+        <div className="leaderboard-category-tabs">
+          <button
+            className={`category-tab-btn ${!isExp ? 'active' : ''}`}
+            onClick={() => setLeaderboardCategory('boss')}
+          >
+            ⚔️ 野王擊殺榜
+          </button>
+          <button
+            className={`category-tab-btn category-exp ${isExp ? 'active' : ''}`}
+            onClick={() => setLeaderboardCategory('exp')}
+          >
+            ⚡ 經驗練功榜
+          </button>
+        </div>
+
+        {/* 二級控制列：指標與週期 */}
         <div className="leaderboard-main-controls">
-          <div className="sub-nav-btns">
-            <button className={leaderboardMetric === 'kills' ? 'active' : ''} onClick={() => { setLeaderboardMetric('kills'); setHasInitialRankingsFetch(false); }}>⚔️ 擊殺戰神榜</button>
-            <button className={leaderboardMetric === 'hours' ? 'active' : ''} onClick={() => { setLeaderboardMetric('hours'); setHasInitialRankingsFetch(false); }}>🛡️ 站崗英雄榜</button>
-          </div>
-          <div className="sub-nav-btns">
-            <button className={leaderboardPeriod === 'allTime' ? 'active' : ''} onClick={() => { setLeaderboardPeriod('allTime'); setHasInitialRankingsFetch(false); }}>總累積榮譽</button>
-            <button className={leaderboardPeriod === 'monthly' ? 'active' : ''} onClick={() => { setLeaderboardPeriod('monthly'); setHasInitialRankingsFetch(false); }}>月賽季排行</button>
-          </div>
-          {leaderboardPeriod === 'monthly' && (
-            <select className="v9-profile-input" style={{ width: 'auto', background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid var(--glass-border)', padding: '5px', borderRadius: '8px' }} value={leaderboardMonth} onChange={e => { setLeaderboardMonth(e.target.value); setHasInitialRankingsFetch(false); }}>
-              {availableRankMonths.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
+          {!isExp ? (
+            <>
+              <div className="sub-nav-btns">
+                <button className={leaderboardMetric === 'kills' ? 'active' : ''} onClick={() => setLeaderboardMetric('kills')}>⚔️ 擊殺戰神榜</button>
+                <button className={leaderboardMetric === 'hours' ? 'active' : ''} onClick={() => setLeaderboardMetric('hours')}>🛡️ 站崗英雄榜</button>
+              </div>
+              <div className="sub-nav-btns">
+                <button className={leaderboardPeriod === 'allTime' ? 'active' : ''} onClick={() => setLeaderboardPeriod('allTime')}>總累積榮譽</button>
+                <button className={leaderboardPeriod === 'monthly' ? 'active' : ''} onClick={() => setLeaderboardPeriod('monthly')}>月賽季排行</button>
+              </div>
+              {leaderboardPeriod === 'monthly' && (
+                <select className="v9-profile-input" style={{ width: 'auto', background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid var(--glass-border)', padding: '5px', borderRadius: '8px' }} value={leaderboardMonth} onChange={e => setLeaderboardMonth(e.target.value)}>
+                  {availableRankMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="sub-nav-btns">
+                <button className={leaderboardExpMetric === 'gainedExp' ? 'active' : ''} onClick={() => setLeaderboardExpMetric('gainedExp')}>🔥 累積經驗</button>
+                <button className={leaderboardExpMetric === 'peakPace' ? 'active' : ''} onClick={() => setLeaderboardExpMetric('peakPace')}>⚡ 刷怪時均</button>
+                <button className={leaderboardExpMetric === 'hours' ? 'active' : ''} onClick={() => setLeaderboardExpMetric('hours')}>⏱️ 練功時長</button>
+                <button className={leaderboardExpMetric === 'level' ? 'active' : ''} onClick={() => setLeaderboardExpMetric('level')}>🎖️ 角色等級</button>
+              </div>
+              <div className="sub-nav-btns">
+                <button className={leaderboardExpPeriod === 'today' ? 'active' : ''} onClick={() => setLeaderboardExpPeriod('today')}>⚡ 今日衝刺</button>
+                <button className={leaderboardExpPeriod === 'monthly' ? 'active' : ''} onClick={() => setLeaderboardExpPeriod('monthly')}>📅 月賽季排行</button>
+                <button className={leaderboardExpPeriod === 'allTime' ? 'active' : ''} onClick={() => setLeaderboardExpPeriod('allTime')}>👑 總累積榮譽</button>
+              </div>
+              {leaderboardExpPeriod === 'monthly' && (
+                <select className="v9-profile-input" style={{ width: 'auto', background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid var(--glass-border)', padding: '5px', borderRadius: '8px' }} value={leaderboardMonth} onChange={e => setLeaderboardMonth(e.target.value)}>
+                  {availableExpMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              )}
+            </>
           )}
         </div>
 
@@ -2475,7 +2746,7 @@ function App() {
                 onClick={() => fetchLeaderboard(true)}
                 disabled={syncCooldown > 0}
               >
-                {syncCooldown > 0 ? `📡 冷卻等待中 (${syncCooldown}s)` : '📡 載入殿堂數據 (V10)'}
+                {syncCooldown > 0 ? `📡 冷卻等待中 (${syncCooldown}s)` : '📡 載入殿堂數據'}
               </button>
               <p style={{ marginTop: '15px', color: 'var(--gold)', opacity: 0.8, fontSize: '0.8rem', letterSpacing: '1px' }}>
                 {syncCooldown > 0 ? '戰略冷卻中，請喝杯水稍候再啟動同步' : '數據已靜止，點擊啟動戰略同步'}
@@ -2492,7 +2763,7 @@ function App() {
                   {renderAvatar(podium[1].p || podium[1].a, "podium-avatar", { width: '80px', height: '80px', border: '3px solid #C0C0C0' })}
                 </div>
                 <div className="podium-name">{podium[1].n}</div>
-                <div className="podium-value">{podium[1].v.toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></div>
+                <div className="podium-value">{renderPodiumValue(podium[1].v, podium[1])}</div>
                 <div className="digital-pillar"></div>
               </div>
             ) : renderPodiumPlaceholder('NO.2')}
@@ -2506,7 +2777,7 @@ function App() {
                   {renderAvatar(podium[0].p || podium[0].a, "podium-avatar", { width: '110px', height: '110px', border: '4px solid var(--gold)', boxShadow: '0 0 30px var(--gold-glow)' })}
                 </div>
                 <div className="podium-name" style={{ fontSize: '1.4rem' }}>{podium[0].n}</div>
-                <div className="podium-value" style={{ fontSize: '1.8rem' }}>{podium[0].v.toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></div>
+                <div className="podium-value" style={{ fontSize: '1.8rem' }}>{renderPodiumValue(podium[0].v, podium[0])}</div>
                 <div className="digital-pillar"></div>
               </div>
             ) : renderPodiumPlaceholder('NO.1')}
@@ -2519,7 +2790,7 @@ function App() {
                   {renderAvatar(podium[2].p || podium[2].a, "podium-avatar", { width: '75px', height: '75px', border: '3px solid #CD7F32' })}
                 </div>
                 <div className="podium-name">{podium[2].n}</div>
-                <div className="podium-value">{podium[2].v.toFixed(isKills ? 0 : 1)} <small>{isKills ? 'KILLS' : 'HRS'}</small></div>
+                <div className="podium-value">{renderPodiumValue(podium[2].v, podium[2])}</div>
                 <div className="digital-pillar"></div>
               </div>
             ) : renderPodiumPlaceholder('NO.3')}
@@ -2532,7 +2803,15 @@ function App() {
               <tr>
                 <th style={{ textAlign: 'center', width: '120px' }}>RANKING</th>
                 <th>MEMBER</th>
-                <th style={{ textAlign: 'right' }}>VALUE ({isKills ? 'KILLS' : 'HOURS'})</th>
+                <th style={{ textAlign: 'right' }}>
+                  {isExp ? (
+                    leaderboardExpMetric === 'gainedExp' ? 'GAINED EXP' :
+                    leaderboardExpMetric === 'peakPace' ? 'PACE (/HR)' :
+                    leaderboardExpMetric === 'hours' ? 'DURATION' : 'LEVEL & PROGRESS'
+                  ) : (
+                    `VALUE (${isKills ? 'KILLS' : 'HOURS'})`
+                  )}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -2547,12 +2826,16 @@ function App() {
                       {renderAvatar(currentUser.profile?.photoURL, "admin-mini-avatar", { width: '36px', height: '36px', border: '2px solid var(--gold)' })}
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontWeight: '950', color: '#fff' }}>{userName}</span>
-                        <span style={{ fontSize: '10px', opacity: 0.6 }}>RANK: {getRankInfo(currentUser.profile?.totalKills || 0).title}</span>
+                        <span style={{ fontSize: '10px', opacity: 0.6 }}>
+                          {isExp 
+                            ? `LV. ${currentUser.profile?.currentLevel || 50} (${(currentUser.profile?.currentPercent || 0).toFixed(2)}%)`
+                            : `RANK: ${getRankInfo(currentUser.profile?.totalKills || 0).title}`}
+                        </span>
                       </div>
                     </div>
                   </td>
                   <td data-label="戰績" className="col-value highlight-num" style={{ textAlign: 'right' }}>
-                    {isKills ? (currentUser.profile?.totalKills || 0) : (currentUser.profile?.totalHours || 0).toFixed(1)}
+                    {renderHeroValue()}
                   </td>
                 </tr>
               )}
@@ -2566,11 +2849,11 @@ function App() {
                       <span style={{ fontWeight: '800' }}>{u.n}</span>
                     </div>
                   </td>
-                  <td className="col-value highlight-num" style={{ textAlign: 'right' }}>{u.v.toFixed(isKills ? 0 : 1)}</td>
+                  <td className="col-value highlight-num" style={{ textAlign: 'right' }}>{renderTableValue(u.v, u)}</td>
                 </tr>
               ))}
               {leaderboardData.length === 0 && !isLeaderboardLoading && hasInitialRankingsFetch && (
-                <tr><td colSpan="3" style={{ textAlign: 'center', padding: '80px', opacity: 0.3, letterSpacing: '2px' }}>殿堂尚無紀綠，請手動刷新</td></tr>
+                <tr><td colSpan="3" style={{ textAlign: 'center', padding: '80px', opacity: 0.3, letterSpacing: '2px' }}>此榜單尚無紀錄，點擊右上角同步或開始練功！</td></tr>
               )}
             </tbody>
           </table>
@@ -2740,6 +3023,7 @@ function App() {
             currentUser={currentUser}
             userName={userName}
             onBackToHub={() => setView('hub')}
+            onSyncExp={(data) => syncExpToRankings(currentUser?.uid, userName, currentUser?.profile?.photoURL, data)}
           />
         );
       }
