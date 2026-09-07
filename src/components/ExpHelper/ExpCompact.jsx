@@ -19,16 +19,18 @@ export default function ExpCompact({
   stats,
   onStartTracking,
   onStopTracking,
+  onPauseTracking,
+  onResetTracking,
   onSwitchToDashboard,
   onLaunchPip,
   isPipWindow = false,
 }) {
   const [showDrawer, setShowDrawer] = useState(false);
-  const [fontSize, setFontSize] = useState(14);
+  const [fontSize, setFontSize] = useState(13);
   const [selectedColor, setSelectedColor] = useState('#ffffff');
   const [opacity, setOpacity] = useState(0.88);
 
-  // 分頁內滑鼠自由拖曳 (Draggable)
+  // 分頁內滑鼠自由拖曳 (Draggable) - 僅在非原生 PiP 時生效
   const [pos, setPos] = useState({ x: 30, y: 30 }); // 預設靠右下
   const isDragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -67,9 +69,25 @@ export default function ExpCompact({
     };
   }, []);
 
+  // 確保在原生 PiP 視窗中永远 100% 水平與垂直置中，零邊緣裁切
   const containerStyle = isPipWindow
-    ? { width: '100%', height: '100%', padding: '10px', boxSizing: 'border-box' }
-    : { right: `${pos.x}px`, bottom: `${pos.y}px` };
+    ? {
+        position: 'static',
+        margin: '0 auto',
+        width: '100%',
+        maxWidth: '360px',
+        boxSizing: 'border-box',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+      }
+    : {
+        position: 'fixed',
+        right: `${pos.x}px`,
+        bottom: `${pos.y}px`,
+      };
+
+  const activePct = correctedPercent ?? rawPercent ?? 0;
 
   return (
     <div className={`exp-compact-wrapper ${isPipWindow ? 'in-pip-window' : ''}`} style={containerStyle}>
@@ -81,7 +99,7 @@ export default function ExpCompact({
           '--compact-font-size': `${fontSize}px`,
         }}
       >
-        {/* 頂部列 (支援滑鼠按住拖曳) */}
+        {/* 頂部列 */}
         <div
           className="compact-header"
           onMouseDown={handleMouseDown}
@@ -126,65 +144,122 @@ export default function ExpCompact({
           </div>
         </div>
 
-        {/* 精簡數據清單 */}
+        {/* 經驗值微型進度條 */}
+        <div className="compact-progress-track" title={`目前升級進度：${Number(activePct).toFixed(2)}%`}>
+          <div className="compact-progress-fill" style={{ width: `${Math.min(100, Math.max(0, activePct))}%` }} />
+        </div>
+
+        {/* 核心數據清單 (包含使用者指定的新增資訊) */}
         <div className="compact-stats-list">
           <div className="compact-stat-row">
-            <span className="compact-stat-label">統計時間</span>
+            <span className="compact-stat-label">⏱️ 統計時間</span>
             <span className="compact-stat-value">{formatDuration(stats.elapsedSeconds)}</span>
           </div>
 
           <div className="compact-stat-row">
-            <span className="compact-stat-label">EXP [ % ]</span>
+            <span className="compact-stat-label">📊 當前經驗</span>
             <span className="compact-stat-value">
-              {formatNumber(currentExp)} [{correctedPercent ?? rawPercent ?? '0.00'}%]
+              {formatNumber(currentExp)}
+              <span className="compact-stat-sub">[{Number(activePct).toFixed(2)}%]</span>
             </span>
           </div>
 
           <div className="compact-stat-row">
-            <span className="compact-stat-label">當前等級</span>
-            <span className="compact-stat-value">Lv. {level || 1}</span>
+            <span className="compact-stat-label">🎖️ 當前等級</span>
+            <span className="compact-stat-value" style={{ color: '#fbbf24' }}>Lv. {level || 1}</span>
           </div>
 
           <div className="compact-stat-row">
-            <span className="compact-stat-label">累積獲得</span>
+            <span className="compact-stat-label">📈 累積獲得</span>
             <span className="compact-stat-value" style={{ color: '#00e676' }}>
-              +{formatNumber(stats.gainedExp)} (+{stats.gainedPercent.toFixed(2)}%)
+              +{formatNumber(stats.gainedExp)}
+              <span className="compact-stat-sub">(+{stats.gainedPercent.toFixed(2)}%)</span>
             </span>
           </div>
 
           <div className="compact-stat-row">
-            <span className="compact-stat-label">EXP / 分</span>
+            <span className="compact-stat-label">⚡ 實時分均</span>
             <span className="compact-stat-value" style={{ color: '#00e5ff' }}>
-              +{formatNumber(stats.expPerMin)}
+              +{formatNumber(stats.expPerMin)} <span className="compact-stat-sub">/分</span>
             </span>
           </div>
 
+          {/* 分隔線 */}
+          <div className="compact-divider"></div>
+
+          {/* 🎯 預估 10 分鐘 */}
           <div className="compact-stat-row">
-            <span className="compact-stat-label">升等 ETA</span>
+            <span className="compact-stat-label">⏳ 預估 10分鐘</span>
+            <span className="compact-stat-value" style={{ color: '#fb923c' }}>
+              +{formatNumber(stats.est10Min)}
+            </span>
+          </div>
+
+          {/* 🎯 預估 60 分鐘 */}
+          <div className="compact-stat-row">
+            <span className="compact-stat-label">🕐 預估 60分鐘</span>
+            <span className="compact-stat-value" style={{ color: '#f472b6' }}>
+              +{formatNumber(stats.est60Min)}
+            </span>
+          </div>
+
+          {/* 🎯 距離升級還差 */}
+          <div className="compact-stat-row">
+            <span className="compact-stat-label">🎯 距離升級還差</span>
+            <span className="compact-stat-value" style={{ color: '#f87171' }}>
+              {formatNumber(stats.remainingExp)}
+            </span>
+          </div>
+
+          {/* 🎯 升級預估 (ETA) */}
+          <div className="compact-stat-row">
+            <span className="compact-stat-label">🚀 升級預估 (ETA)</span>
             <span className="compact-stat-value" style={{ color: '#c084fc' }}>
               {formatEta(stats.etaSeconds)}
             </span>
           </div>
         </div>
 
-        {/* 快捷膠囊控制鈕 */}
+        {/* 快捷控制列 */}
         <div className="compact-btn-row">
           {trackingState === 'IDLE' ? (
             <button
               className="exp-btn exp-btn-green"
-              style={{ flex: 1, padding: '8px 12px', fontSize: '13px' }}
+              style={{ flex: 1, padding: '7px 10px', fontSize: '12px' }}
               onClick={onStartTracking}
             >
               ▶ 開始記錄 (F11)
             </button>
           ) : (
-            <button
-              className="exp-btn exp-btn-red"
-              style={{ flex: 1, padding: '8px 12px', fontSize: '13px' }}
-              onClick={onStopTracking}
-            >
-              ⏹ 停止記錄 (F11)
-            </button>
+            <>
+              <button
+                className="exp-btn exp-btn-red"
+                style={{ flex: 1.2, padding: '7px 10px', fontSize: '12px' }}
+                onClick={onStopTracking}
+              >
+                ⏹ 停止 (F11)
+              </button>
+              {onPauseTracking && (
+                <button
+                  className="exp-btn exp-btn-glass"
+                  style={{ flex: 1, padding: '7px 8px', fontSize: '12px' }}
+                  onClick={onPauseTracking}
+                  title="暫停/繼續 (F7)"
+                >
+                  {trackingState === 'PAUSED' ? '▶ 繼續' : '⏸ 暫停'}
+                </button>
+              )}
+              {onResetTracking && (
+                <button
+                  className="exp-btn exp-btn-glass"
+                  style={{ padding: '7px 10px', fontSize: '12px' }}
+                  onClick={onResetTracking}
+                  title="重設數據 (F8)"
+                >
+                  🔄
+                </button>
+              )}
+            </>
           )}
         </div>
 
@@ -195,8 +270,8 @@ export default function ExpCompact({
               <span>字體大小 ({fontSize}px)</span>
               <input
                 type="range"
-                min="12"
-                max="20"
+                min="11"
+                max="17"
                 value={fontSize}
                 onChange={(e) => setFontSize(parseInt(e.target.value, 10))}
                 style={{ width: '120px' }}

@@ -545,8 +545,31 @@
   right: 30px;
   bottom: 30px;
   z-index: 9999;
-  width: 320px;
+  width: 340px;
+  max-width: calc(100vw - 20px);
   animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+/* 🎮 原生 Document Picture-in-Picture 置頂小窗專屬重設 (保證永遠置中、零邊界裁切) */
+.exp-compact-wrapper.in-pip-window {
+  position: static !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+  top: auto !important;
+  margin: 0 auto !important;
+  width: 100% !important;
+  max-width: 360px !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+  animation: none !important;
+  transform: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding: 6px !important;
 }
 
 @keyframes slideUp {
@@ -555,22 +578,25 @@
 }
 
 .compact-card {
-  background: rgba(10, 12, 22, var(--compact-opacity, 0.85));
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(10, 12, 22, var(--compact-opacity, 0.88));
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 18px;
-  padding: 16px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  padding: 14px 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65);
   color: var(--compact-color, #ffffff);
+  margin: 0 auto;
 }
 
 .compact-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 10px;
+  padding-bottom: 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .compact-title-group {
@@ -606,31 +632,67 @@
 .compact-stats-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .compact-stat-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: var(--compact-font-size, 14px);
+  font-size: var(--compact-font-size, 13px);
+  padding: 1px 0;
 }
 
 .compact-stat-label {
   font-weight: 700;
-  opacity: 0.7;
+  opacity: 0.85;
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
 }
 
 .compact-stat-value {
   font-weight: 800;
   font-family: 'Geist Mono', monospace;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.compact-stat-sub {
+  font-size: 11px;
+  opacity: 0.8;
+  font-weight: normal;
+  margin-left: 4px;
+}
+
+.compact-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 0;
+}
+
+.compact-progress-track {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 4px 0 8px 0;
+}
+
+.compact-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #00e5ff, #00e676);
+  border-radius: 4px;
+  transition: width 0.3s ease;
 }
 
 .compact-btn-row {
-  margin-top: 14px;
+  margin-top: 10px;
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 /* 外觀抽屜 */

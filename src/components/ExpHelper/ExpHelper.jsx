@@ -397,8 +397,8 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
     if ('documentPictureInPicture' in window) {
       try {
         const pip = await window.documentPictureInPicture.requestWindow({
-          width: 340,
-          height: 440,
+          width: 360,
+          height: 495,
         });
         pipWindowRef.current = pip;
 
@@ -417,13 +417,25 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
           }
         });
 
-        // 建立 Portal 容器
+        // 建立保證 100% 置中的 Portal 容器
+        pip.document.body.style.margin = '0';
+        pip.document.body.style.padding = '0';
+        pip.document.body.style.background = '#0a0d18';
+        pip.document.body.style.display = 'flex';
+        pip.document.body.style.justifyContent = 'center';
+        pip.document.body.style.alignItems = 'center';
+        pip.document.body.style.minHeight = '100vh';
+        pip.document.body.style.boxSizing = 'border-box';
+        pip.document.body.style.overflow = 'hidden';
+
         const container = pip.document.createElement('div');
         container.style.width = '100%';
         container.style.height = '100%';
-        container.style.background = '#0d111e';
-        pip.document.body.style.margin = '0';
-        pip.document.body.style.padding = '0';
+        container.style.display = 'flex';
+        container.style.justifyContent = 'center';
+        container.style.alignItems = 'center';
+        container.style.boxSizing = 'border-box';
+        container.style.padding = '6px';
         pip.document.body.appendChild(container);
 
         setPipContainer(container);
@@ -586,6 +598,8 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
             stats={stats}
             onStartTracking={handleStartTracking}
             onStopTracking={handleStopTracking}
+            onPauseTracking={handlePauseTracking}
+            onResetTracking={handleResetTracking}
             onSwitchToDashboard={() => setViewMode('dashboard')}
             onLaunchPip={togglePipWindow}
           />
@@ -603,6 +617,8 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
           stats={stats}
           onStartTracking={handleStartTracking}
           onStopTracking={handleStopTracking}
+          onPauseTracking={handlePauseTracking}
+          onResetTracking={handleResetTracking}
           onSwitchToDashboard={() => {
             if (pipWindowRef.current) pipWindowRef.current.close();
             setViewMode('dashboard');
