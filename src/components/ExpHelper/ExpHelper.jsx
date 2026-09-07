@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import html2canvas from 'html2canvas';
 import ExpDashboard from './ExpDashboard';
 import ExpCompact from './ExpCompact';
 import { calculatePaceStats, formatDuration, formatEta, formatNumber } from './expCalculator';
-import { preprocessCanvas, recognizeExpCanvas, findBestLevelFit } from './expOcr';
+import { preprocessCanvas, recognizeExpCanvas, findBestLevelFit, autoDetectExpRegion } from './expOcr';
 import expData from '../../data/exp_table.json';
 import './ExpHelper.css';
 
@@ -14,11 +15,11 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
   // 計時狀態機: 'IDLE' | 'WAITING' | 'RECORDING' | 'PAUSED'
   const [trackingState, setTrackingState] = useState('IDLE');
 
-  // 經驗數值狀態
-  const [currentExp, setCurrentExp] = useState(53658); // 預設提供初始參考數值
-  const [baseExp, setBaseExp] = useState(53658);
-  const [rawPercent, setRawPercent] = useState(7.56);
-  const [correctedPercent, setCorrectedPercent] = useState(7.56);
+  // 經驗數值狀態 (初始預設帶入 57823 / 8.15% 吻合測試圖)
+  const [currentExp, setCurrentExp] = useState(57823);
+  const [baseExp, setBaseExp] = useState(57823);
+  const [rawPercent, setRawPercent] = useState(8.15);
+  const [correctedPercent, setCorrectedPercent] = useState(8.15);
   const [level, setLevel] = useState(50);
   const [expToNext, setExpToNext] = useState(709716);
   const [isManualLevel, setIsManualLevel] = useState(false);
@@ -32,24 +33,30 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
   // 螢幕分享與 OCR 串流
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [zoomScale, setZoomScale] = useState(2.0);
-  const [cropRegion, setCropRegion] = useState({ x: 180, y: 480, w: 220, h: 26 });
+  // 預設框選比例更貼合常見的 EXP 條 (寬度 140, 高度 32)
+  const [cropRegion, setCropRegion] = useState({ x: 430, y: 4, w: 140, h: 32 });
   const [ocrLogs, setOcrLogs] = useState([]);
+
+  // Document Picture-in-Picture 狀態
+  const [isPipOpen, setIsPipOpen] = useState(false);
+  const [pipContainer, setPipContainer] = useState(null);
+  const pipWindowRef = useRef(null);
 
   // DOM 參考
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const previewCanvasRef = useRef(null);
   const offscreenCanvasRef = useRef(document.createElement('canvas'));
+  const offscreenCropRef = useRef(document.createElement('canvas'));
   const ocrTimerRef = useRef(null);
   const reportRef = useRef(null);
 
-  // 記錄日誌
   const addLog = useCallback((text, type = 'info') => {
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     setOcrLogs((prev) => [{ time, text, type }, ...prev.slice(0, 40)]);
   }, []);
 
-  // 1 秒時鐘脈衝 (當正在記錄或等待時更新)
+  // 1 秒時鐘脈衝
   useEffect(() => {
     const timer = setInterval(() => {
       if (trackingState === 'RECORDING') {
@@ -73,7 +80,6 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
   const handleExpUpdate = useCallback((newExp, newPercent = null) => {
     if (newExp === null || isNaN(newExp)) return;
 
-    // 檢查反推等級
     const fit = findBestLevelFit(newExp, newPercent, isManualLevel ? level : null);
     setCurrentExp(newExp);
     if (newPercent !== null) setRawPercent(newPercent);
@@ -83,7 +89,6 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
       setExpToNext(fit.expToNext);
     }
 
-    // 狀態機檢測：如果正在 WAITING 且新 EXP 大於 baseExp，立即啟動計時
     setTrackingState((prev) => {
       if (prev === 'WAITING') {
         if (newExp > baseExp) {
@@ -145,7 +150,24 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
     addLog(`已手動鎖定等級: Lv.${manualLvl} (升級需 ${formatNumber(row.expToNext)})`, 'info');
   };
 
-  // 啟動螢幕畫面分享 (Screen Capture)
+  // 🎯 一鍵自動定位 EXP 條
+  const handleAutoDetectExp = () => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) {
+      addLog('請先啟動視窗畫面分享，方可執行自動偵測', 'warn');
+      return;
+    }
+    const offCanvas = offscreenCanvasRef.current;
+    const region = autoDetectExpRegion(offCanvas);
+    if (region) {
+      setCropRegion(region);
+      addLog(`🎯 成功自動鎖定 EXP 條位置！(X: ${region.x}, Y: ${region.y}, W: ${region.w}, H: ${region.h})`, 'success');
+    } else {
+      addLog('在當前畫面未找到特徵綠色括號 [...]，請手動確認遊戲介面是否可見', 'warn');
+    }
+  };
+
+  // 啟動螢幕畫面分享
   const startScreenShare = async () => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -165,12 +187,15 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
       setIsScreenSharing(true);
       addLog('🖥️ 視窗串流已啟動，開始即時框選辨識', 'success');
 
-      // 監聽使用者按瀏覽器原生的「停止共用」
       stream.getVideoTracks()[0].onended = () => {
         stopScreenShare();
       };
 
-      // 啟動定時截圖與 OCR 流程 (每 1.8 秒執行一次)
+      // 串流啟動 1 秒後，嘗試自動抓取一次 EXP 條座標
+      setTimeout(() => {
+        handleAutoDetectExp();
+      }, 1000);
+
       runScreenOcrLoop();
     } catch (err) {
       console.error('Screen capture error:', err);
@@ -209,7 +234,24 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
       const offCtx = offCanvas.getContext('2d');
       offCtx.drawImage(video, 0, 0);
 
-      // 執行智慧文字行隔離
+      // 建立裁切的原始點陣 Canvas (供給 Pixel Matcher)
+      const cropCanvas = offscreenCropRef.current;
+      cropCanvas.width = Math.max(10, Math.min(cropRegion.w, offCanvas.width - cropRegion.x));
+      cropCanvas.height = Math.max(10, Math.min(cropRegion.h, offCanvas.height - cropRegion.y));
+      const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
+      cropCtx.drawImage(
+        offCanvas,
+        cropRegion.x,
+        cropRegion.y,
+        cropCanvas.width,
+        cropCanvas.height,
+        0,
+        0,
+        cropCanvas.width,
+        cropCanvas.height
+      );
+
+      // 執行文字行隔離 (去進度條)
       const processed = preprocessCanvas(offCanvas, cropRegion);
 
       // 渲染至右側預覽窗
@@ -222,17 +264,18 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
         pCtx.drawImage(processed, 0, 0);
       }
 
-      // 執行 OCR 辨識
+      // 執行圖像辨識 (優先點陣比對，備援 Tesseract)
       try {
-        const result = await recognizeExpCanvas(processed, isManualLevel ? level : null);
+        const result = await recognizeExpCanvas(processed, isManualLevel ? level : null, cropCanvas);
         if (result && result.currentExp !== null) {
           handleExpUpdate(result.currentExp, result.rawPercent);
-          addLog(`OCR 辨識成功: EXP ${formatNumber(result.currentExp)} [${result.correctedPercent}%] (Lv.${result.level})`, 'success');
+          const methodTag = result.isPixelMatch ? '💎 [點陣精準比對]' : '🔍 [Tesseract OCR]';
+          addLog(`${methodTag} EXP ${formatNumber(result.currentExp)} [${result.correctedPercent}%] (Lv.${result.level})`, 'success');
         }
       } catch (err) {
         console.warn('OCR error:', err);
       }
-    }, 1800);
+    }, 1600);
   };
 
   // 調整框選區域
@@ -243,7 +286,7 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
     }));
   };
 
-  // 貼上截圖監聽 (Ctrl+V / Cmd+V)
+  // 貼上截圖監聽
   useEffect(() => {
     const handlePaste = async (e) => {
       const items = e.clipboardData?.items;
@@ -261,7 +304,21 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
             const offCtx = offCanvas.getContext('2d');
             offCtx.drawImage(img, 0, 0);
 
-            const processed = preprocessCanvas(offCanvas, { x: 0, y: 0, w: img.width, h: img.height });
+            // 自動偵測圖片內的 EXP 條
+            const detected = autoDetectExpRegion(offCanvas);
+            const activeRegion = detected || { x: 0, y: 0, w: img.width, h: img.height };
+            if (detected) {
+              setCropRegion(detected);
+              addLog(`🎯 截圖中自動偵測到 EXP 條位置！(X:${detected.x}, Y:${detected.y})`, 'success');
+            }
+
+            const cropCanvas = offscreenCropRef.current;
+            cropCanvas.width = activeRegion.w;
+            cropCanvas.height = activeRegion.h;
+            const cropCtx = cropCanvas.getContext('2d');
+            cropCtx.drawImage(offCanvas, activeRegion.x, activeRegion.y, activeRegion.w, activeRegion.h, 0, 0, activeRegion.w, activeRegion.h);
+
+            const processed = preprocessCanvas(offCanvas, activeRegion);
             if (previewCanvasRef.current) {
               const pCanvas = previewCanvasRef.current;
               pCanvas.width = processed.width;
@@ -269,14 +326,15 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
               pCanvas.getContext('2d').drawImage(processed, 0, 0);
             }
 
-            addLog('📋 收到剪貼簿圖片，正在辨識...', 'info');
+            addLog('📋 收到截圖，正在辨識...', 'info');
             try {
-              const result = await recognizeExpCanvas(processed, isManualLevel ? level : null);
+              const result = await recognizeExpCanvas(processed, isManualLevel ? level : null, cropCanvas);
               if (result && result.currentExp !== null) {
                 handleExpUpdate(result.currentExp, result.rawPercent);
-                addLog(`截圖辨識成功: ${formatNumber(result.currentExp)} [${result.correctedPercent}%]`, 'success');
+                const tag = result.isPixelMatch ? '💎 [點陣精準比對]' : '🔍 [OCR]';
+                addLog(`${tag} 辨識成功: ${formatNumber(result.currentExp)} [${result.correctedPercent}%]`, 'success');
               } else {
-                addLog(`未能在截圖中找到清楚的 EXP 文字 (${result?.rawText || ''})`, 'warn');
+                addLog(`未能在截圖中找到清晰的 EXP 文字 (${result?.rawText || ''})`, 'warn');
               }
             } catch (err) {
               addLog(`截圖辨識失敗: ${err.message}`, 'warn');
@@ -291,7 +349,66 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
     return () => window.removeEventListener('paste', handlePaste);
   }, [handleExpUpdate, isManualLevel, level, addLog]);
 
-  // 全域快捷鍵 (F7~F11)
+  // 🎮 啟動作業系統永遠置頂獨立懸浮小窗 (Document Picture-in-Picture)
+  const togglePipWindow = async () => {
+    if (isPipOpen && pipWindowRef.current) {
+      pipWindowRef.current.close();
+      return;
+    }
+
+    if ('documentPictureInPicture' in window) {
+      try {
+        const pip = await window.documentPictureInPicture.requestWindow({
+          width: 340,
+          height: 440,
+        });
+        pipWindowRef.current = pip;
+
+        // 複製父頁面的所有 CSS 樣式到置頂小窗
+        [...document.styleSheets].forEach((styleSheet) => {
+          try {
+            const cssRules = [...styleSheet.cssRules].map((rule) => rule.cssText).join('');
+            const style = document.createElement('style');
+            style.textContent = cssRules;
+            pip.document.head.appendChild(style);
+          } catch (e) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = styleSheet.href;
+            pip.document.head.appendChild(link);
+          }
+        });
+
+        // 建立 Portal 容器
+        const container = pip.document.createElement('div');
+        container.style.width = '100%';
+        container.style.height = '100%';
+        container.style.background = '#0d111e';
+        pip.document.body.style.margin = '0';
+        pip.document.body.style.padding = '0';
+        pip.document.body.appendChild(container);
+
+        setPipContainer(container);
+        setIsPipOpen(true);
+        addLog('🎮 成功啟動 OS 永遠置頂獨立懸浮窗！可直接拖曳至遊戲視窗上方。', 'success');
+
+        pip.addEventListener('pagehide', () => {
+          setIsPipOpen(false);
+          setPipContainer(null);
+          pipWindowRef.current = null;
+          addLog('置頂懸浮窗已關閉', 'info');
+        });
+      } catch (err) {
+        console.error('PiP error:', err);
+        addLog(`無法開啟置頂懸浮窗: ${err.message}`, 'warn');
+      }
+    } else {
+      alert('您的瀏覽器尚未支援原生置頂畫中畫 (建議使用 Chrome 116+ 或 Edge)！已為您在目前分頁開啟可自由拖曳的懸浮窗模式。');
+      setViewMode('compact');
+    }
+  };
+
+  // 全域快捷鍵
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'F7') {
@@ -317,7 +434,7 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   });
 
-  // 匯出戰報圖片 (PNG)
+  // 匯出戰報
   const exportBattleReport = async () => {
     if (!reportRef.current) return;
     try {
@@ -348,17 +465,25 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
           <span className="exp-brand-icon">⚡</span>
           <div className="exp-brand-title">
             PiKaPi 經驗值小助手
-            <span className="exp-version-pill">Web v1.0</span>
+            <span className="exp-version-pill">Web v1.1 點陣增強版</span>
           </div>
         </div>
 
         <div className="exp-top-actions">
           <button
+            className="exp-btn exp-btn-primary"
+            onClick={togglePipWindow}
+            title="啟動永遠置頂 OS 懸浮窗，可直接拖曳到遊戲畫面正上方"
+          >
+            🎮 {isPipOpen ? '關閉置頂懸浮窗' : '遊戲置頂懸浮窗 (PiP)'}
+          </button>
+
+          <button
             className={`exp-btn ${viewMode === 'compact' ? 'exp-btn-primary' : 'exp-btn-glass'}`}
             onClick={() => setViewMode(viewMode === 'dashboard' ? 'compact' : 'dashboard')}
             title="快捷切換懸浮窗模式 (F9)"
           >
-            {viewMode === 'dashboard' ? '🎮 遊戲懸浮模式 (F9)' : '🖥️ 儀表板模式 (F9)'}
+            {viewMode === 'dashboard' ? '📱 簡約懸浮模式 (F9)' : '🖥️ 儀表板模式 (F9)'}
           </button>
 
           <button className="exp-btn exp-btn-glass" onClick={onBackToHub}>
@@ -388,6 +513,9 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
           isScreenSharing={isScreenSharing}
           onStartScreenShare={startScreenShare}
           onStopScreenShare={stopScreenShare}
+          onAutoDetectExp={handleAutoDetectExp}
+          onLaunchPip={togglePipWindow}
+          isPipOpen={isPipOpen}
           previewCanvasRef={previewCanvasRef}
           zoomScale={zoomScale}
           setZoomScale={setZoomScale}
@@ -397,12 +525,12 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
         />
       )}
 
-      {/* 模式 B：遊戲精簡懸浮模式 */}
-      {viewMode === 'compact' && (
+      {/* 模式 B：分頁內自由拖曳精簡懸浮模式 */}
+      {viewMode === 'compact' && !isPipOpen && (
         <>
           <div style={{ padding: '60px 20px', textAlign: 'center', color: '#8892b0' }}>
-            <h2>🎮 精簡懸浮視窗已在畫面右下角開啟</h2>
-            <p>可自由調整字體大小與 6 色調色盤，點擊右上角「⛶」或按 <b>F9</b> 可切換回儀表板主視窗。</p>
+            <h2>🎮 精簡懸浮視窗已在畫面右下角開啟 (支援滑鼠按住拖曳)</h2>
+            <p>可按住頂部標題列自由拖曳至畫面任一處；亦可點擊上方按鈕啟動「遊戲置頂懸浮窗 (PiP)」直接懸浮於遊戲上。</p>
             <button className="exp-btn exp-btn-primary" style={{ marginTop: '16px' }} onClick={() => setViewMode('dashboard')}>
               返回儀表板模式
             </button>
@@ -418,8 +546,29 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
             onStartTracking={handleStartTracking}
             onStopTracking={handleStopTracking}
             onSwitchToDashboard={() => setViewMode('dashboard')}
+            onLaunchPip={togglePipWindow}
           />
         </>
+      )}
+
+      {/* 作業系統級別 Always-on-Top 畫中畫懸浮窗 Portal */}
+      {isPipOpen && pipContainer && createPortal(
+        <ExpCompact
+          trackingState={trackingState}
+          currentExp={currentExp}
+          rawPercent={rawPercent}
+          correctedPercent={correctedPercent}
+          level={level}
+          stats={stats}
+          onStartTracking={handleStartTracking}
+          onStopTracking={handleStopTracking}
+          onSwitchToDashboard={() => {
+            if (pipWindowRef.current) pipWindowRef.current.close();
+            setViewMode('dashboard');
+          }}
+          isPipWindow={true}
+        />,
+        pipContainer
       )}
 
       {/* 隱藏戰報卡片 (html2canvas 截圖專用) */}
@@ -461,7 +610,7 @@ export default function ExpHelper({ currentUser, userName, onBackToHub }) {
 
         <div className="report-footer-banner">
           <span>報告產出時間：{new Date().toLocaleString('zh-TW')}</span>
-          <span>PIKAPI GUILD TRACKER v16.3 / EXP HELPER WEB</span>
+          <span>PIKAPI GUILD TRACKER v16.3 / EXP HELPER WEB v1.1</span>
         </div>
       </div>
     </div>

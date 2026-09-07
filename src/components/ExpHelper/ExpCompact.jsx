@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { formatDuration, formatEta, formatNumber } from './expCalculator';
 
 const COLOR_PALETTE = [
@@ -20,14 +20,59 @@ export default function ExpCompact({
   onStartTracking,
   onStopTracking,
   onSwitchToDashboard,
+  onLaunchPip,
+  isPipWindow = false,
 }) {
   const [showDrawer, setShowDrawer] = useState(false);
   const [fontSize, setFontSize] = useState(14);
   const [selectedColor, setSelectedColor] = useState('#ffffff');
-  const [opacity, setOpacity] = useState(0.85);
+  const [opacity, setOpacity] = useState(0.88);
+
+  // 分頁內滑鼠自由拖曳 (Draggable)
+  const [pos, setPos] = useState({ x: 30, y: 30 }); // 預設靠右下
+  const isDragging = useRef(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+
+  const handleMouseDown = (e) => {
+    if (isPipWindow) return; // 原生 PiP 視窗由作業系統原生邊框拖曳
+    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('.compact-drawer')) return;
+    isDragging.current = true;
+    dragOffset.current = {
+      x: e.clientX,
+      y: e.clientY,
+    };
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isDragging.current) return;
+      const dx = e.clientX - dragOffset.current.x;
+      const dy = e.clientY - dragOffset.current.y;
+      dragOffset.current = { x: e.clientX, y: e.clientY };
+      setPos((prev) => ({
+        x: Math.max(10, prev.x - dx), // relative to right
+        y: Math.max(10, prev.y - dy), // relative to bottom
+      }));
+    };
+
+    const handleMouseUp = () => {
+      isDragging.current = false;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  const containerStyle = isPipWindow
+    ? { width: '100%', height: '100%', padding: '10px', boxSizing: 'border-box' }
+    : { right: `${pos.x}px`, bottom: `${pos.y}px` };
 
   return (
-    <div className="exp-compact-wrapper">
+    <div className={`exp-compact-wrapper ${isPipWindow ? 'in-pip-window' : ''}`} style={containerStyle}>
       <div
         className="compact-card"
         style={{
@@ -36,13 +81,32 @@ export default function ExpCompact({
           '--compact-font-size': `${fontSize}px`,
         }}
       >
-        {/* 頂部列 */}
-        <div className="compact-header">
+        {/* 頂部列 (支援滑鼠按住拖曳) */}
+        <div
+          className="compact-header"
+          onMouseDown={handleMouseDown}
+          style={{ cursor: isPipWindow ? 'default' : 'grab', userSelect: 'none' }}
+          title={isPipWindow ? '' : '按住可自由拖曳懸浮窗位置'}
+        >
           <div className="compact-title-group">
-            <span className="pulse-dot pulsing" style={{ color: trackingState === 'RECORDING' ? '#00e676' : '#ffab00' }}></span>
+            <span
+              className="pulse-dot pulsing"
+              style={{ color: trackingState === 'RECORDING' ? '#00e676' : '#ffab00' }}
+            ></span>
             <span>PiKaPi 經驗小助手</span>
+            {!isPipWindow && <span style={{ fontSize: '10px', opacity: 0.5 }}>✥ 可拖曳</span>}
           </div>
+
           <div className="compact-actions">
+            {!isPipWindow && onLaunchPip && (
+              <button
+                className="compact-icon-btn"
+                onClick={onLaunchPip}
+                title="啟動永遠置頂 OS 浮動小窗 (Picture-in-Picture)"
+              >
+                🪟
+              </button>
+            )}
             <button
               className="compact-icon-btn"
               onClick={() => setShowDrawer(!showDrawer)}
@@ -50,13 +114,15 @@ export default function ExpCompact({
             >
               🎨
             </button>
-            <button
-              className="compact-icon-btn"
-              onClick={onSwitchToDashboard}
-              title="放大回儀表板"
-            >
-              ⛶
-            </button>
+            {!isPipWindow && (
+              <button
+                className="compact-icon-btn"
+                onClick={onSwitchToDashboard}
+                title="放大回儀表板"
+              >
+                ⛶
+              </button>
+            )}
           </div>
         </div>
 
@@ -125,7 +191,6 @@ export default function ExpCompact({
         {/* 外觀自訂抽屜 */}
         {showDrawer && (
           <div className="compact-drawer">
-            {/* 字體大小 */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
               <span>字體大小 ({fontSize}px)</span>
               <input
@@ -138,13 +203,12 @@ export default function ExpCompact({
               />
             </div>
 
-            {/* 透明度 */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
               <span>背景透明度</span>
               <input
                 type="range"
                 min="0.3"
-                max="0.95"
+                max="0.98"
                 step="0.05"
                 value={opacity}
                 onChange={(e) => setOpacity(parseFloat(e.target.value))}
@@ -152,7 +216,6 @@ export default function ExpCompact({
               />
             </div>
 
-            {/* 6 色調色盤 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px' }}>
               <span>字體顏色</span>
               <div className="palette-row">

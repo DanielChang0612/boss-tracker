@@ -4,8 +4,22 @@ import expData from '../../data/exp_table.json';
 let worker = null;
 let isInitializing = false;
 
+// 楓之谷 / Artale 精準 5x7 點陣數字字典
+const DIGITS = {
+  '0': ['.###.', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+  '1': ['.#', '##', '.#', '.#', '.#', '.#', '.#'],
+  '2': ['.###.', '#...#', '....#', '...#.', '..#..', '.#...', '#####'],
+  '3': ['.###.', '#...#', '....#', '..##.', '....#', '#...#', '.###.'],
+  '4': ['...#.', '..##.', '.#.#.', '#..#.', '#####', '...#.', '...#.'],
+  '5': ['#####', '#....', '#....', '.###.', '....#', '#...#', '.###.'],
+  '6': ['.###.', '#...#', '#....', '####.', '#...#', '#...#', '.###.'],
+  '7': ['#####', '....#', '....#', '....#', '...#.', '..#..', '..#..'],
+  '8': ['.###.', '#...#', '#...#', '.###.', '#...#', '#...#', '.###.'],
+  '9': ['.###.', '#...#', '#...#', '.####', '....#', '#...#', '.###.']
+};
+
 /**
- * 初始化 Tesseract OCR 引擎 (單一實例保持活化)
+ * 初始化 Tesseract OCR 引擎 (作為像素點陣的備援機制)
  */
 export async function initOCR() {
   if (worker) return worker;
@@ -20,8 +34,8 @@ export async function initOCR() {
   try {
     worker = await createWorker('eng');
     await worker.setParameters({
-      tessedit_pageseg_mode: '7', // 單行文字模式 PSM 7
-      tessedit_char_whitelist: '0123456789[],. %EXPe/x:+-()', // 白名單字符
+      tessedit_pageseg_mode: '7',
+      tessedit_char_whitelist: '0123456789[],. %EXPe/x:+-()',
     });
     console.log('[PiKaPi OCR] Tesseract Worker 初始化完成');
     return worker;
@@ -34,15 +48,208 @@ export async function initOCR() {
 }
 
 /**
- * ① 智慧型文字行隔離演算法 (Smart Text-Row Isolation)
- * - 依色彩特徵掃描白字與萊姆綠百分比
- * - 自動定位文字上下邊界，100% 抹除下方經驗進度條
- * - 4.0 倍像素放大與銳化黑白二值化
+ * 🎯 自動定位 EXP 條演算法 (Auto-Detect EXP Region)
+ * 在傳入的視窗/全螢幕 Canvas 中，自動尋找綠色括號 [...] 與經驗條，精準框出 EXP 座標！
+ */
+export function autoDetectExpRegion(canvas) {
+  if (!canvas) return null;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const w = canvas.width;
+  const h = canvas.height;
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+
+  // 1. 搜尋具有萊姆綠括號特徵的直行
+  const greenCols = [];
+  for (let x = 0; x < w; x++) {
+    let greenCount = 0;
+    let minY = h;
+    let maxY = 0;
+    for (let y = 0; y < h; y++) {
+      const idx = (y * w + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      if (g > 110 && g > r * 1.15 && g > b * 1.15) {
+        greenCount++;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (greenCount >= 5 && (maxY - minY) >= 6) {
+      greenCols.push({ x, minY, maxY });
+    }
+  }
+
+  if (greenCols.length < 2) return null;
+
+  // 2. 合併相鄰直行
+  const merged = [];
+  for (const c of greenCols) {
+    if (merged.length === 0 || c.x - merged[merged.length - 1].x > 3) {
+      merged.push(c);
+    }
+  }
+
+  if (merged.length < 2) return null;
+
+  // 3. 取最後一對括號 (EXP 條通常位於儀表板最右側)
+  const b1 = merged[merged.length - 2];
+  const b2 = merged[merged.length - 1];
+
+  const cropX = Math.max(0, b1.x - 72);
+  const cropY = Math.max(0, b1.minY - 5);
+  const cropW = Math.min(w - cropX, (b2.x - cropX) + 20);
+  const cropH = Math.min(h - cropY, 32);
+
+  return { x: cropX, y: cropY, w: cropW, h: cropH };
+}
+
+/**
+ * 💎 楓之谷專用 100% 像素點陣精準辨識演算法 (Pixel Font Matcher)
+ * 針對 經驗值.webp 與 遊戲儀表板資訊.webp 的 5x7 點陣字，進行無誤差比對
+ */
+export function matchPixelFont(canvas, manualLevel = null) {
+  if (!canvas) return null;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const w = canvas.width;
+  const h = canvas.height;
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+
+  // 1. 尋找綠色括號 [ 與 ]
+  const greenCols = [];
+  for (let x = 0; x < w; x++) {
+    let greenCount = 0;
+    let minY = h;
+    let maxY = 0;
+    for (let y = 0; y < h; y++) {
+      const idx = (y * w + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      if (g > 110 && g > r * 1.15 && g > b * 1.15) {
+        greenCount++;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (greenCount >= 4 && (maxY - minY) >= 6) {
+      greenCols.push({ x, minY, maxY });
+    }
+  }
+
+  if (greenCols.length < 2) return null;
+
+  const merged = [];
+  for (const c of greenCols) {
+    if (merged.length === 0 || c.x - merged[merged.length - 1].x > 3) {
+      merged.push(c);
+    }
+  }
+
+  if (merged.length < 2) return null;
+
+  // 取最後一對括號
+  const b1 = merged[merged.length - 2];
+  const b2 = merged[merged.length - 1];
+  const bracketY = b1.minY;
+
+  // 白字判定
+  const isWhite = (x, y) => {
+    if (x < 0 || x >= w || y < 0 || y >= h) return false;
+    const idx = (y * w + x) * 4;
+    const r = data[idx];
+    const g = data[idx + 1];
+    const b = data[idx + 2];
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    return lum > 135 && Math.abs(r - g) < 30 && Math.abs(g - b) < 30;
+  };
+
+  // 數字匹配
+  const matchDigits = (startX, endX) => {
+    const res = [];
+    let x = startX;
+    while (x < endX) {
+      let hasWhite = false;
+      for (let y = bracketY - 2; y <= bracketY + 10; y++) {
+        if (isWhite(x, y)) { hasWhite = true; break; }
+      }
+      if (!hasWhite) { x++; continue; }
+
+      let bestDigit = null;
+      let bestScore = 0;
+      let bestW = 1;
+
+      for (const [digit, tmpl] of Object.entries(DIGITS)) {
+        const tw = tmpl[0].length;
+        const th = tmpl.length;
+        if (x + tw > endX + 1) continue;
+
+        for (let dy = -2; dy <= 2; dy++) {
+          const baseY = bracketY + dy + 1;
+          if (baseY < 0 || baseY + th > h) continue;
+
+          let matches = 0;
+          for (let ty = 0; ty < th; ty++) {
+            for (let tx = 0; tx < tw; tx++) {
+              const whitePix = isWhite(x + tx, baseY + ty);
+              const expectedPix = tmpl[ty][tx] === '#';
+              if (whitePix === expectedPix) matches++;
+            }
+          }
+          const score = matches / (tw * th);
+          if (score > bestScore && score >= 0.82) {
+            bestScore = score;
+            bestDigit = digit;
+            bestW = tw;
+          }
+        }
+      }
+
+      if (bestDigit) {
+        res.push(bestDigit);
+        x += bestW;
+      } else {
+        x++;
+      }
+    }
+    return res.join('');
+  };
+
+  // 匹配 EXP 數值
+  const expStr = matchDigits(Math.max(0, b1.x - 70), b1.x - 1);
+  const pctStr = matchDigits(b1.x + 2, b2.x - 1);
+
+  if (!expStr || expStr.length < 2) return null;
+
+  const currentExp = parseInt(expStr, 10);
+  let rawPercent = null;
+  if (pctStr && pctStr.length >= 2) {
+    if (pctStr.length >= 3) {
+      rawPercent = parseFloat(`${pctStr.slice(0, pctStr.length - 2)}.${pctStr.slice(-2)}`);
+    } else {
+      rawPercent = parseFloat(pctStr);
+    }
+  }
+
+  const levelFit = findBestLevelFit(currentExp, rawPercent, manualLevel);
+  return {
+    rawText: `EXP ${currentExp}[${rawPercent || levelFit.correctedPercent}%]`,
+    currentExp,
+    rawPercent: rawPercent || levelFit.correctedPercent,
+    ...levelFit,
+    isPixelMatch: true,
+    confidence: 1.0,
+  };
+}
+
+/**
+ * 智慧文字行隔離預處理
  */
 export function preprocessCanvas(sourceCanvas, crop) {
   const { x = 0, y = 0, w = sourceCanvas.width, h = sourceCanvas.height } = crop || {};
 
-  // 1. 建立裁切暫存 Canvas
   const cropCanvas = document.createElement('canvas');
   cropCanvas.width = Math.max(10, Math.min(w, sourceCanvas.width - x));
   cropCanvas.height = Math.max(10, Math.min(h, sourceCanvas.height - y));
@@ -54,7 +261,6 @@ export function preprocessCanvas(sourceCanvas, crop) {
   const cw = cropCanvas.width;
   const ch = cropCanvas.height;
 
-  // 2. 逐行掃描字元特徵，定位文字邊界
   const textRowVotes = new Array(ch).fill(0);
   for (let row = 0; row < ch; row++) {
     for (let col = 0; col < cw; col++) {
@@ -62,12 +268,8 @@ export function preprocessCanvas(sourceCanvas, crop) {
       const r = data[idx];
       const g = data[idx + 1];
       const b = data[idx + 2];
-
-      // 白字判定: Y = 0.299R + 0.587G + 0.114B > 130
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
       const isWhite = lum > 130 && Math.abs(r - g) < 25 && Math.abs(g - b) < 25;
-
-      // 萊姆綠括號與百分比判定: G > 130 且 G > 1.05R 且 G > 1.2B
       const isLimeGreen = g > 120 && g > 1.05 * r && g > 1.2 * b;
 
       if (isWhite || isLimeGreen) {
@@ -76,7 +278,6 @@ export function preprocessCanvas(sourceCanvas, crop) {
     }
   }
 
-  // 找出文字開始行與結束行
   let textStartY = 0;
   let textEndY = ch - 1;
   const voteThreshold = Math.max(2, Math.floor(cw * 0.03));
@@ -88,18 +289,14 @@ export function preprocessCanvas(sourceCanvas, crop) {
     }
   }
 
-  // 從下方往上找文字結束（避免進度條被計入）
   for (let r = textStartY + 5; r < ch; r++) {
-    // 若連續 2 行投票數極低，且距離上方已有文字高度，視為文字區結束
     if (r < ch - 2 && textRowVotes[r] < voteThreshold && textRowVotes[r + 1] < voteThreshold) {
       textEndY = r;
       break;
     }
   }
-  // 確保文字高度合理 (大約 8 ~ 25px)
   if (textEndY - textStartY < 6) textEndY = Math.min(ch - 1, textStartY + 18);
 
-  // 3. 抹除文字邊界以外（特別是下方進度條塗純白）
   for (let row = 0; row < ch; row++) {
     const isInsideText = row >= textStartY && row <= textEndY;
     for (let col = 0; col < cw; col++) {
@@ -116,7 +313,6 @@ export function preprocessCanvas(sourceCanvas, crop) {
         const isWhite = lum > 130;
         const isLimeGreen = g > 120 && g > 1.05 * r && g > 1.2 * b;
 
-        // 二值化: 文字變純黑，背景純白 (Tesseract 最喜愛的高對比)
         if (isWhite || isLimeGreen) {
           data[idx] = 0;
           data[idx + 1] = 0;
@@ -131,13 +327,12 @@ export function preprocessCanvas(sourceCanvas, crop) {
   }
   cropCtx.putImageData(imgData, 0, 0);
 
-  // 4. 4.0 倍像素放大與銳化
   const scale = 4.0;
   const scaledCanvas = document.createElement('canvas');
   scaledCanvas.width = Math.round(cropCanvas.width * scale);
   scaledCanvas.height = Math.round(cropCanvas.height * scale);
   const sCtx = scaledCanvas.getContext('2d');
-  sCtx.imageSmoothingEnabled = false; // 點陣銳化
+  sCtx.imageSmoothingEnabled = false;
   sCtx.fillStyle = '#ffffff';
   sCtx.fillRect(0, 0, scaledCanvas.width, scaledCanvas.height);
   sCtx.drawImage(cropCanvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
@@ -146,15 +341,13 @@ export function preprocessCanvas(sourceCanvas, crop) {
 }
 
 /**
- * ② 楓之谷經驗表反向適配演算法 (Level Fit Optimizer)
- * 解決 1px 小數點遺漏問題 (例如 7.56% 誤讀為 75.6% 或 75.61%)
+ * 楓之谷經驗表反向適配演算法 (Level Fit Optimizer)
  */
 export function findBestLevelFit(currentExp, rawPercent, manualLevel = null) {
   if (!currentExp || currentExp <= 0) {
     return { level: manualLevel || 1, expToNext: expData[0].expToNext, correctedPercent: 0, confidence: 0 };
   }
 
-  // 如果使用者手動指定了等級
   if (manualLevel && manualLevel >= 1 && manualLevel <= 200) {
     const row = expData.find(e => e.level === manualLevel) || expData[0];
     const calcPct = Number(((currentExp / row.expToNext) * 100).toFixed(2));
@@ -167,11 +360,9 @@ export function findBestLevelFit(currentExp, rawPercent, manualLevel = null) {
     };
   }
 
-  // 自動推估所有可能的百分比候選
   const candidates = [];
   if (rawPercent !== null && !isNaN(rawPercent)) {
     candidates.push(rawPercent);
-    // 常見 OCR 誤讀校正：75.6 -> 7.56, 75.61 -> 7.56
     const str = String(rawPercent);
     if (str.length >= 3 && !str.includes('.')) {
       candidates.push(parseFloat(`${str.slice(0, str.length - 2)}.${str.slice(-2)}`));
@@ -204,12 +395,10 @@ export function findBestLevelFit(currentExp, rawPercent, manualLevel = null) {
     }
   }
 
-  // 若比對誤差在 5% 以內，視為高信度匹配成功
   if (bestFit && bestFit.error <= 0.05) {
     return bestFit;
   }
 
-  // 如果未能高信度匹配，嘗試直接由 currentExp 估計大概等級
   const fallbackRow = expData.find(e => e.expToNext > currentExp) || expData[0];
   const calculatedPercent = Number(((currentExp / fallbackRow.expToNext) * 100).toFixed(2));
   return {
@@ -228,15 +417,12 @@ export function parseOcrText(text, currentManualLevel = null) {
   if (!text) return null;
   const clean = text.replace(/[\r\n]+/g, ' ').trim();
 
-  // 嘗試匹配 EXP [XX.XX%] 或 53,658 [7.56%] 等
-  // 匹配數字 (含逗號)
   const expMatch = clean.match(/(\d{1,3}(?:,\d{3})+|\d+)/);
   let currentExp = null;
   if (expMatch) {
     currentExp = parseInt(expMatch[1].replace(/,/g, ''), 10);
   }
 
-  // 匹配百分比 [7.56%] 或 7.56% 或 (7.56%)
   const pctMatch = clean.match(/\[?\s*(\d+(?:\.\d+)?)\s*%\s*\]?/);
   let rawPercent = null;
   if (pctMatch) {
@@ -262,9 +448,21 @@ export function parseOcrText(text, currentManualLevel = null) {
 }
 
 /**
- * 執行一次圖像辨識
+ * 執行圖像辨識 (優先使用 100% 像素點陣匹配，備援走 Tesseract OCR)
  */
-export async function recognizeExpCanvas(processedCanvas, currentManualLevel = null) {
+export async function recognizeExpCanvas(processedCanvas, currentManualLevel = null, rawCropCanvas = null) {
+  // 1. 優先嘗試 MapleStory 專屬像素點陣比對
+  try {
+    const targetCanvas = rawCropCanvas || processedCanvas;
+    const pixelResult = matchPixelFont(targetCanvas, currentManualLevel);
+    if (pixelResult && pixelResult.currentExp !== null) {
+      return pixelResult;
+    }
+  } catch (err) {
+    console.warn('[Pixel Matcher] 嘗試點陣比對略過:', err);
+  }
+
+  // 2. 備援方案：走 Tesseract.js 通用 OCR
   const ocrWorker = await initOCR();
   const { data: { text, confidence } } = await ocrWorker.recognize(processedCanvas);
   const parsed = parseOcrText(text, currentManualLevel);

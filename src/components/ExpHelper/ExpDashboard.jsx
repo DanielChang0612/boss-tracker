@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { formatDuration, formatEta, formatNumber } from './expCalculator';
 
 export default function ExpDashboard({
-  // 狀態
-  trackingState, // 'IDLE' | 'WAITING' | 'RECORDING' | 'PAUSED'
+  trackingState,
   currentExp,
   rawPercent,
   correctedPercent,
@@ -11,7 +10,6 @@ export default function ExpDashboard({
   expToNext,
   isManualLevel,
   stats,
-  // 操作函式
   onStartTracking,
   onStopTracking,
   onPauseTracking,
@@ -19,10 +17,12 @@ export default function ExpDashboard({
   onManualExpUpdate,
   onSetManualLevel,
   onExportReport,
-  // 螢幕分享與預覽
   isScreenSharing,
   onStartScreenShare,
   onStopScreenShare,
+  onAutoDetectExp,
+  onLaunchPip,
+  isPipOpen,
   previewCanvasRef,
   zoomScale,
   setZoomScale,
@@ -35,7 +35,6 @@ export default function ExpDashboard({
   const [isEditingLevel, setIsEditingLevel] = useState(false);
   const [tempLevelInput, setTempLevelInput] = useState(level || 1);
 
-  // 取得記憶體資訊 (Chromium 支援)
   const memoryInfo = (performance && performance.memory)
     ? `${Math.round(performance.memory.usedJSHeapSize / (1024 * 1024))} MB`
     : '正常 (WASM)';
@@ -260,16 +259,33 @@ export default function ExpDashboard({
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
               {!isScreenSharing ? (
                 <button className="exp-btn exp-btn-primary" style={{ flex: 1 }} onClick={onStartScreenShare}>
                   🖥️ 選擇遊戲視窗 (Screen Capture)
                 </button>
               ) : (
-                <button className="exp-btn exp-btn-red" style={{ flex: 1 }} onClick={onStopScreenShare}>
-                  ⏹ 停止視窗串流
-                </button>
+                <>
+                  <button className="exp-btn exp-btn-green" style={{ flex: 1 }} onClick={onAutoDetectExp} title="自動尋找畫面中的綠色括號與 EXP 條">
+                    🎯 自動定位 EXP 條
+                  </button>
+                  <button className="exp-btn exp-btn-red" style={{ flex: 1 }} onClick={onStopScreenShare}>
+                    ⏹ 停止串流
+                  </button>
+                </>
               )}
+            </div>
+
+            {/* 置頂畫中畫獨立小窗快捷啟動按鈕 */}
+            <div style={{ marginTop: '8px' }}>
+              <button
+                className="exp-btn exp-btn-glass"
+                style={{ width: '100%', borderColor: '#00e5ff', color: '#00e5ff' }}
+                onClick={onLaunchPip}
+                title="在作業系統桌面開啟永遠置頂的浮動小視窗，可直接拖曳到楓之谷遊戲畫面上！"
+              >
+                🎮 {isPipOpen ? '關閉遊戲置頂懸浮窗 (PiP)' : '啟動遊戲置頂懸浮窗 (Picture-in-Picture)'}
+              </button>
             </div>
           </div>
         </div>
@@ -301,7 +317,7 @@ export default function ExpDashboard({
           </div>
         </div>
 
-        {/* 手動極速更新列 (支援不開視窗或手機輸入) */}
+        {/* 手動極速更新列 */}
         <div className="monitor-box">
           <div className="panel-title" style={{ fontSize: '14px', marginBottom: '10px' }}>
             <span>⌨️</span> 手動極速更新 (無螢幕分享時可用)
@@ -310,7 +326,7 @@ export default function ExpDashboard({
             <div className="manual-input-box">
               <input
                 type="text"
-                placeholder="當前 EXP (如 53658)"
+                placeholder="當前 EXP (如 57823)"
                 value={manualExpInput}
                 onChange={(e) => setManualExpInput(e.target.value)}
               />
@@ -318,7 +334,7 @@ export default function ExpDashboard({
             <div className="manual-input-box" style={{ maxWidth: '120px' }}>
               <input
                 type="text"
-                placeholder="%"
+                placeholder="% (如 8.15)"
                 value={manualPctInput}
                 onChange={(e) => setManualPctInput(e.target.value)}
               />
@@ -332,7 +348,7 @@ export default function ExpDashboard({
         {/* OCR 原始記錄 Console */}
         <div className="monitor-box">
           <div className="panel-title" style={{ fontSize: '13px', marginBottom: '8px' }}>
-            <span>📜</span> OCR 原始識別日誌 (Log)
+            <span>📜</span> 辨識紀錄日誌 (Log)
           </div>
           <div className="ocr-log-console">
             {ocrLogs.length === 0 ? (
