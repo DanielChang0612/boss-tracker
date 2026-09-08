@@ -3557,7 +3557,12 @@ function App() {
                 const currentSplitCount = typeof lootData.splitCount === 'number' ? lootData.splitCount : Math.max(activeMembersCount, 1);
                 const itemsList = Object.values(lootItems).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
                 const totalAmount = itemsList.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-                const perPerson = currentSplitCount > 0 ? (totalAmount / currentSplitCount) : 0;
+                const feeAmount = totalAmount * 0.05;
+                const netAmount = totalAmount * 0.95;
+                const perPerson = currentSplitCount > 0 ? (netAmount / currentSplitCount) : 0;
+                const formattedTotal = Number.isInteger(totalAmount) ? totalAmount : Number(totalAmount.toFixed(2));
+                const formattedFee = Number.isInteger(feeAmount) ? feeAmount : Number(feeAmount.toFixed(2));
+                const formattedNet = Number.isInteger(netAmount) ? netAmount : Number(netAmount.toFixed(2));
                 const formattedPerPerson = Number.isInteger(perPerson) ? perPerson : perPerson.toFixed(1);
 
                 const handleAddLoot = (e) => {
@@ -3682,8 +3687,18 @@ function App() {
                     {/* 結算統計區 */}
                     <div className="loot-split-summary">
                       <div className="loot-sum-row">
-                        <span className="loot-sum-label">💰 總收益</span>
-                        <span className="loot-sum-val">{totalAmount} 萬</span>
+                        <span className="loot-sum-label">💰 總成交金額</span>
+                        <span className="loot-sum-val">{formattedTotal} 萬</span>
+                      </div>
+
+                      <div className="loot-sum-row loot-fee-row">
+                        <span className="loot-sum-label">🏷️ 販售手續費 (5%)</span>
+                        <span className="loot-fee-val">- {formattedFee} 萬</span>
+                      </div>
+
+                      <div className="loot-sum-row loot-net-row">
+                        <span className="loot-sum-label">💵 扣稅淨收益 (95%)</span>
+                        <span className="loot-net-val">{formattedNet} 萬</span>
                       </div>
 
                       <div className="loot-sum-row">
@@ -3695,10 +3710,21 @@ function App() {
                         </div>
                       </div>
 
+                      {/* 計算公式卡片 */}
+                      <div className="loot-formula-box">
+                        <div className="formula-title">📐 計算公式 (扣除 5% 手續費)</div>
+                        <div className="formula-content">
+                          ({formattedTotal}萬 × 95%) ÷ {currentSplitCount}人 = <b>{formattedPerPerson}</b> 萬
+                        </div>
+                      </div>
+
                       <div className="loot-result-divider" />
 
                       <div className="loot-final-payout">
-                        <span className="payout-label">👑 每人實拿</span>
+                        <div className="payout-label-col">
+                          <span className="payout-label">👑 每人實拿</span>
+                          <span className="payout-sub-hint">(已扣除 5% 交易手續費)</span>
+                        </div>
                         <span className="payout-amount">{formattedPerPerson} <small>萬</small></span>
                       </div>
                     </div>

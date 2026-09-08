@@ -4529,6 +4529,47 @@ body {
   font-family: var(--font-mono);
 }
 
+.loot-fee-val {
+  color: #ff7675;
+  font-weight: 800;
+  font-family: var(--font-mono);
+}
+
+.loot-net-val {
+  color: #4fc3f7;
+  font-weight: 800;
+  font-family: var(--font-mono);
+}
+
+/* 計算公式卡片 */
+.loot-formula-box {
+  background: rgba(171, 71, 188, 0.08);
+  border: 1px dashed rgba(171, 71, 188, 0.35);
+  border-radius: 6px;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 2px 0;
+}
+
+.formula-title {
+  font-size: 0.65rem;
+  color: #ce93d8;
+  font-weight: 700;
+}
+
+.formula-content {
+  font-size: 0.72rem;
+  color: #f3e5f5;
+  font-family: var(--font-mono);
+}
+
+.formula-content b {
+  color: #39ff14;
+  font-size: 0.82rem;
+}
+
 .loot-people-stepper {
   display: flex;
   align-items: center;
@@ -4574,17 +4615,30 @@ body {
 .loot-final-payout {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   background: rgba(171, 71, 188, 0.15);
-  padding: 6px 10px;
+  padding: 8px 10px;
   border-radius: 6px;
   border: 1px solid rgba(171, 71, 188, 0.3);
 }
 
+.payout-label-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .payout-label {
   color: #fff;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 900;
+}
+
+.payout-sub-hint {
+  font-size: 0.62rem;
+  color: #81c784;
+  font-weight: 700;
+  opacity: 0.9;
 }
 
 .payout-amount {
@@ -4600,5 +4654,3 @@ body {
   color: #81c784;
   font-weight: 700;
 }
-
-
