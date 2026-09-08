@@ -311,6 +311,17 @@ function App() {
   const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(false);
   const lastAlertTs = useRef(Date.now()); // V15.8: 語音警報過濾器
   const isAdmin = currentUser?.uid === ADMIN_UID || currentUser?.uid === PIKA_UID;
+  const [roomAlertToast, setRoomAlertToast] = useState(null); // 房內重生與區間倒數 Toast 通報
+  const notifiedEventsRef = useRef({}); // { [ch_timestamp]: { min: boolean, max: boolean } }
+
+  // 自動關閉房內重生 Toast
+  useEffect(() => {
+    if (roomAlertToast) {
+      const t = setTimeout(() => setRoomAlertToast(null), 5500);
+      return () => clearTimeout(t);
+    }
+  }, [roomAlertToast]);
+
 
   // --- V16.1: 戰術會話全時管控系統 (24h 無死角偵測) ---
   useEffect(() => {
@@ -395,6 +406,67 @@ function App() {
   const currentBoss = (currentRoom && currentRoom.bossId && BOSSES[currentRoom.bossId])
     ? BOSSES[currentRoom.bossId]
     : BOSSES[selectedBossId] || Object.values(BOSSES)[0];
+
+  // 雙階段重生提醒 (40分提醒隨時出怪，60分提醒最晚重生保底)
+  useEffect(() => {
+    if (view !== 'room' || !currentRoom || !currentBoss) return;
+    const records = currentRoom.records || {};
+    const hasMax = Boolean(currentBoss.maxTime);
+
+    Object.entries(records).forEach(([ch, rec]) => {
+      if (!rec || rec.lastKill === 0) return; // 0 是置頂/偵察中
+
+      const elapsedMs = now - (rec.lastKill || 0);
+      const minMs = currentBoss.time * 60000;
+      const maxMs = hasMax ? currentBoss.maxTime * 60000 : minMs;
+      const chEventKey = `${ch}_${rec.lastKill}`;
+
+      if (!notifiedEventsRef.current[chEventKey]) {
+        notifiedEventsRef.current[chEventKey] = { min: false, max: false };
+      }
+      const eventState = notifiedEventsRef.current[chEventKey];
+
+      // 1. 達到最早重生時間 (如 40 分鐘)
+      if (elapsedMs >= minMs && !eventState.min) {
+        eventState.min = true;
+        const msg = hasMax
+          ? `${ch} ${currentBoss.name} 已過 ${currentBoss.time} 分鐘，隨時可能重生，請前往就位！`
+          : `${ch} ${currentBoss.name} 已經重生！`;
+
+        if (isTabActive && !voiceSettings.isMuted) {
+          speechQueue.current.push(msg);
+          processSpeechQueue();
+        }
+
+        setRoomAlertToast({
+          id: Date.now(),
+          type: hasMax ? 'window' : 'ready',
+          ch,
+          title: hasMax ? '🎲 隨時可能重生！' : '✅ 已經重生！',
+          message: msg
+        });
+      }
+
+      // 2. 達到最晚重生時間 (如 60 分鐘保底)
+      if (hasMax && elapsedMs >= maxMs && !eventState.max) {
+        eventState.max = true;
+        const msg = `${ch} ${currentBoss.name} 已滿 ${currentBoss.maxTime} 分鐘，已達最晚重生時間！`;
+
+        if (isTabActive && !voiceSettings.isMuted) {
+          speechQueue.current.push(msg);
+          processSpeechQueue();
+        }
+
+        setRoomAlertToast({
+          id: Date.now(),
+          type: 'ready',
+          ch,
+          title: '⚠️ 最晚重生時間已到！',
+          message: msg
+        });
+      }
+    });
+  }, [now, view, currentRoom, currentBoss, isTabActive, voiceSettings.isMuted]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -1950,7 +2022,21 @@ function App() {
   const broadcastStatus = (ch) => {
     if (!currentRoomId || !currentBoss) return;
     const chNum = ch.replace('CH', '').trim();
-    const message = `頻道 ${chNum} 已經重生`;
+    const rec = (currentRoom?.records || {})[ch] || {};
+    const elapsedMin = (now - (rec.lastKill || 0)) / 60000;
+
+    let message = `頻道 ${chNum} 已經重生`;
+    if (currentBoss.maxTime) {
+      if (elapsedMin < currentBoss.time) {
+        const left = Math.ceil(currentBoss.time - elapsedMin);
+        message = `頻道 ${chNum} 倒數中，還有 ${left} 分鐘`;
+      } else if (elapsedMin < currentBoss.maxTime) {
+        const left = Math.ceil(currentBoss.maxTime - elapsedMin);
+        message = `頻道 ${chNum} 隨時可能重生，最晚還剩 ${left} 分鐘！`;
+      } else {
+        message = `頻道 ${chNum} 已滿 ${currentBoss.maxTime} 分鐘，最晚重生時間已到！`;
+      }
+    }
 
     // 更新至 Firebase 中心的語音警報設施，這會觸發全房報讀
     update(ref(db, `rooms/${currentRoomId}`), {
@@ -3333,6 +3419,18 @@ function App() {
 
         return (
           <div className={`room-container-v25 boss-theme-${currentRoom.bossId} fade-in ${showMobileHud ? 'hud-open' : 'hud-closed'}`}>
+            {/* 房內戰術通報 Toast (雙階段重生與保底提醒) */}
+            {roomAlertToast && (
+              <div className={`tactical-toast-banner fade-in toast-${roomAlertToast.type}`}>
+                <div className="toast-icon">{roomAlertToast.type === 'window' ? '🎲' : '👑'}</div>
+                <div className="toast-body">
+                  <div className="toast-headline">{roomAlertToast.title} <span className="toast-ch">{roomAlertToast.ch}</span></div>
+                  <div className="toast-subtext">{roomAlertToast.message}</div>
+                </div>
+                <button className="toast-close" onClick={() => setRoomAlertToast(null)}>✕</button>
+              </div>
+            )}
+
             {/* --- V9.0 SIDEBAR: 4 MODULES --- */}
             <aside className="v25-sidebar">
               <div className="mobile-hud-header">
@@ -3655,13 +3753,19 @@ function App() {
                         .map(ch => {
                           const rec = records[ch] || {};
                           const isNewFound = rec.lastKill === 0;
-                          const remaining = isNewFound ? 0 : (currentBoss ? currentBoss.time - (now - (rec.lastKill || 0)) / 60000 : 0);
-                          const isReady = remaining <= 0;
+                          const hasMaxTime = Boolean(currentBoss && currentBoss.maxTime);
+                          const elapsedMin = isNewFound ? 99999 : (now - (rec.lastKill || 0)) / 60000;
+                          const remainingMin = isNewFound ? 0 : (currentBoss ? currentBoss.time - elapsedMin : 0);
+                          const remainingMax = isNewFound ? 0 : (hasMaxTime ? currentBoss.maxTime - elapsedMin : remainingMin);
+
+                          // 狀態判定
+                          const inWindow = hasMaxTime && !isNewFound && remainingMin <= 0 && remainingMax > 0;
+                          const isReady = isNewFound || (hasMaxTime ? remainingMax <= 0 : remainingMin <= 0);
                           const occupant = rec.occupant || '';
                           const isConfirmed = rec.isConfirmed || false;
 
                           return (
-                            <div key={ch} className={`v25-row ${isReady ? 'is-ready' : ''} ${isNewFound ? 'is-new-found' : ''}`}>
+                            <div key={ch} className={`v25-row ${isReady ? 'is-ready' : ''} ${inWindow ? 'is-in-window' : ''} ${isNewFound ? 'is-new-found' : ''}`}>
                               {/* 1. 頻道與佔位 */}
                               <div className="v4-ch-group-v9">
                                 <span className="v5-ch-id">CH {ch.replace('CH', '').trim()}</span>
@@ -3681,18 +3785,21 @@ function App() {
 
                               {/* 3. 倒數計時 */}
                               <div className="v5-timer-container v25-col-center">
-                                <div key="timer-display" className={`v5-timer ${isReady ? 'ready' : ''} ${rec.isStolen ? 'is-stolen' : ''}`}>
-                                  {isReady ? 'READY' : formatTime(remaining * 60000)}
+                                <div key="timer-display" className={`v5-timer ${isReady ? 'ready' : ''} ${inWindow ? 'in-window' : ''} ${rec.isStolen ? 'is-stolen' : ''}`}>
+                                  {isReady ? 'READY' : (inWindow ? `最遲 ${formatTime(remainingMax * 60000)}` : formatTime(remainingMin * 60000))}
                                 </div>
                                 {rec.isStolen && isReady && (
                                   <div key="stolen-warning" className="stolen-warning fade-in">⚠️ 該BOSS被偷過請提前蹭蹭</div>
+                                )}
+                                {inWindow && (
+                                  <div className="window-sub-hint fade-in">🎲 隨時可能現身</div>
                                 )}
                               </div>
 
                               {/* 4. 目前狀態 */}
                               <div className="v25-col-center">
-                                <span key="status-badge" className={`v5-status-badge ${isReady ? (rec.isStolen ? 'v5-status-stolen' : 'v5-status-ready') : 'v5-status-waiting'}`}>
-                                  {isReady ? (rec.isStolen ? '🥷 蹭蹭中' : '已重生') : '重生中'}
+                                <span key="status-badge" className={`v5-status-badge ${isReady ? (rec.isStolen ? 'v5-status-stolen' : 'v5-status-ready') : (inWindow ? 'v5-status-window' : 'v5-status-waiting')}`}>
+                                  {isReady ? (rec.isStolen ? '🥷 蹭蹭中' : (hasMaxTime ? '✅ 必定重生' : '已重生')) : (inWindow ? '🎲 隨時出怪' : '重生中')}
                                 </span>
                               </div>
 
@@ -3710,7 +3817,7 @@ function App() {
                                   {occupant ? (occupant === userName ? '已確認' : '已被佔') : '已佔位'}
                                 </button>
                                 <button className="btn-liquid-glass btn-lg-micro lg-grey" onClick={() => handleStolen(ch)}>已被偷</button>
-                                {!isReady ? (
+                                {!isReady && !inWindow ? (
                                   <button key="btn-respawn" className="btn-liquid-glass btn-lg-micro lg-amber" onClick={() => handleRespawned(ch)}>已重生</button>
                                 ) : (
                                   <button key="btn-kill" className="btn-liquid-glass btn-lg-micro lg-pink" onClick={() => addRecord(ch)}>已擊殺</button>
@@ -4061,12 +4168,21 @@ function App() {
                       if (previewList.length === 0) return <div className="no-p-msg">無符合選取條件的頻道資料</div>;
 
                       return previewList.map(([ch, data]) => {
-                        const remaining = currentBoss.time - (now - data.lastKill) / 60000;
-                        const isReady = remaining <= 0;
+                        const hasMaxTime = Boolean(currentBoss && currentBoss.maxTime);
+                        const elapsedMin = (now - data.lastKill) / 60000;
+                        const remainingMin = currentBoss.time - elapsedMin;
+                        const remainingMax = hasMaxTime ? currentBoss.maxTime - elapsedMin : remainingMin;
+                        const inWindow = hasMaxTime && remainingMin <= 0 && remainingMax > 0;
+                        const isReady = hasMaxTime ? remainingMax <= 0 : remainingMin <= 0;
+
+                        let statusText = `⏳ ${formatTime(remainingMin * 60000)}`;
+                        if (isReady) statusText = '✅ 已登場';
+                        else if (inWindow) statusText = `🎲 隨時出 (最遲 ${formatTime(remainingMax * 60000)})`;
+
                         return (
                           <div key={ch} className="p-ch-item">
                             <span className="p-ch-id">{ch}</span>
-                            <span className="p-ch-status">{isReady ? '✅ 已登場' : `⏳ ${formatTime(remaining * 60000)}`}</span>
+                            <span className="p-ch-status">{statusText}</span>
                           </div>
                         );
                       });
