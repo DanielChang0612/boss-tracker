@@ -35,6 +35,30 @@ const BOSSES = {
   test: { name: "測試王", time: 0.25, area: "開發者地圖", color: "#607d8b" }
 };
 
+// 維多利亞島 殭屍菇菇 熱門戰利品下拉預設 (v1.0)
+const ZOMBIE_MUSHROOM_LOOT_PRESETS = [
+  "短杖魔力卷軸60%",
+  "單手劍攻擊卷軸60%",
+  "單手斧攻擊卷軸60%",
+  "腰帶敏捷卷軸60%",
+  "腰帶智力卷軸60%",
+  "火槍攻擊卷軸60%",
+  "指虎攻擊卷軸60%",
+  "寵物速度卷軸60%",
+  "長杖魔力卷軸60%",
+  "單手棍攻擊卷軸60%",
+  "弩攻擊卷軸60%",
+  "弓攻擊卷軸60%",
+  "拳套攻擊卷軸60%",
+  "短劍攻擊卷軸60%",
+  "矛攻擊卷軸60%",
+  "槍攻擊卷軸60%",
+  "雙手棍攻擊卷軸60%",
+  "雙手斧攻擊卷軸60%",
+  "雙手劍攻擊卷軸60%",
+  "日之鏢"
+];
+
 const ROOM_AUTO_DELETE_MS = 2 * 60 * 60 * 1000; // 恢復為 2 小時戰略緩衝
 const ADMIN_UID = 'OFJlOe2XIXWfihSrJu49MzHKLgv1'; // 其他管理員的 UID
 const PIKA_UID = 'dVqiQcpgNqR5xgHZbeGjsncgHeN2'; // 最高指揮官不可被刪除或操作
@@ -314,6 +338,11 @@ function App() {
   const [roomAlertToast, setRoomAlertToast] = useState(null); // 房內重生與區間倒數 Toast 通報
   const notifiedEventsRef = useRef({}); // { [ch_timestamp]: { min: boolean, max: boolean } }
 
+  // 殭屍菇菇戰利品分紅 (極簡版) 本地輸入狀態
+  const [lootPreset, setLootPreset] = useState('');
+  const [lootCustomName, setLootCustomName] = useState('');
+  const [lootAmount, setLootAmount] = useState('');
+
   // 自動關閉房內重生 Toast
   useEffect(() => {
     if (roomAlertToast) {
@@ -587,7 +616,7 @@ function App() {
     });
 
     // c. 監聽房間 Meta (車長, 設定等低頻變動資料) - v15.5: 精細化分路監聽，杜絕 records 造成的重複流量爆炸
-    const metaPaths = ['conductor', 'bossId', 'password', 'wildBossExplore', 'voiceAlert'];
+    const metaPaths = ['conductor', 'bossId', 'password', 'wildBossExplore', 'voiceAlert', 'lootSplit'];
     const unsubMetas = metaPaths.map(path => {
       return onValue(child(roomRef, path), (snap) => {
         const val = snap.val();
@@ -3519,6 +3548,163 @@ function App() {
                   <div>地區: {currentBoss.area || '維多利亞島'}</div>
                 </div>
               </div>
+
+              {/* Box 3.5: 殭屍菇菇專屬 戰利品分紅模組 (極簡版) */}
+              {currentRoom.bossId === 'zombie_mushroom' && (() => {
+                const lootData = currentRoom.lootSplit || {};
+                const lootItems = lootData.items || {};
+                const activeMembersCount = Object.keys(currentRoom.members || {}).length || 1;
+                const currentSplitCount = typeof lootData.splitCount === 'number' ? lootData.splitCount : Math.max(activeMembersCount, 1);
+                const itemsList = Object.values(lootItems).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                const totalAmount = itemsList.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+                const perPerson = currentSplitCount > 0 ? (totalAmount / currentSplitCount) : 0;
+                const formattedPerPerson = Number.isInteger(perPerson) ? perPerson : perPerson.toFixed(1);
+
+                const handleAddLoot = (e) => {
+                  e?.preventDefault();
+                  const finalName = lootPreset === '__CUSTOM__' ? lootCustomName.trim() : lootPreset;
+                  if (!finalName) {
+                    alert('請由下拉選單選取戰利品或輸入自訂名稱！');
+                    return;
+                  }
+                  const amt = parseFloat(lootAmount);
+                  if (isNaN(amt) || amt <= 0) {
+                    alert('請輸入大於 0 的金額（萬）！');
+                    return;
+                  }
+                  const lootId = `loot_${Date.now()}`;
+                  update(ref(db, `rooms/${currentRoomId}/lootSplit/items/${lootId}`), {
+                    id: lootId,
+                    name: finalName,
+                    amount: amt,
+                    creator: userName,
+                    createdAt: Date.now()
+                  });
+                  setLootPreset('');
+                  setLootCustomName('');
+                  setLootAmount('');
+                };
+
+                const handleDeleteLoot = (lootId) => {
+                  if (window.confirm('確定要刪除此筆戰利品紀錄嗎？')) {
+                    remove(ref(db, `rooms/${currentRoomId}/lootSplit/items/${lootId}`));
+                  }
+                };
+
+                const handleUpdateSplitCount = (delta) => {
+                  const nextCount = Math.max(1, currentSplitCount + delta);
+                  update(ref(db, `rooms/${currentRoomId}/lootSplit`), {
+                    splitCount: nextCount
+                  });
+                };
+
+                const handleClearLoot = () => {
+                  if (window.confirm('確定要清空本場所有戰利品紀錄嗎？')) {
+                    remove(ref(db, `rooms/${currentRoomId}/lootSplit/items`));
+                  }
+                };
+
+                return (
+                  <div className="hud-card loot-split-card">
+                    <div className="loot-card-header">
+                      <span className="hud-label">🎁 本場戰利品分紅</span>
+                      {itemsList.length > 0 && (
+                        <button type="button" className="loot-clear-btn" onClick={handleClearLoot} title="清空本場戰利品">清空</button>
+                      )}
+                    </div>
+
+                    {/* 輸入表單 */}
+                    <form className="loot-input-form" onSubmit={handleAddLoot}>
+                      <div className="loot-select-wrap">
+                        <select 
+                          className="loot-select" 
+                          value={lootPreset} 
+                          onChange={(e) => setLootPreset(e.target.value)}
+                        >
+                          <option value="">-- 請選擇掉落物 --</option>
+                          {ZOMBIE_MUSHROOM_LOOT_PRESETS.map((p) => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                          <option value="__CUSTOM__">✏️ 自訂其他物品...</option>
+                        </select>
+                      </div>
+
+                      {lootPreset === '__CUSTOM__' && (
+                        <input
+                          type="text"
+                          className="loot-custom-input"
+                          placeholder="輸入自訂物品名稱..."
+                          value={lootCustomName}
+                          onChange={(e) => setLootCustomName(e.target.value)}
+                          maxLength={30}
+                        />
+                      )}
+
+                      <div className="loot-amount-row">
+                        <div className="loot-amount-input-box">
+                          <input
+                            type="number"
+                            step="any"
+                            className="loot-amount-input"
+                            placeholder="金額"
+                            value={lootAmount}
+                            onChange={(e) => setLootAmount(e.target.value)}
+                          />
+                          <span className="loot-unit">萬</span>
+                        </div>
+                        <button type="submit" className="btn-liquid-glass btn-lg-micro lg-amber loot-add-btn">
+                          ＋ 記錄
+                        </button>
+                      </div>
+                    </form>
+
+                    {/* 掉落物清單 */}
+                    <div className="loot-items-list">
+                      {itemsList.length === 0 ? (
+                        <div className="loot-empty-hint">尚無掉落物，打到隨手記一筆</div>
+                      ) : (
+                        itemsList.map(item => (
+                          <div key={item.id} className="loot-item-row">
+                            <span className="loot-item-bullet">•</span>
+                            <span className="loot-item-name" title={item.name}>{item.name}</span>
+                            <span className="loot-item-amt">{item.amount} 萬</span>
+                            <button 
+                              type="button" 
+                              className="loot-item-del" 
+                              onClick={() => handleDeleteLoot(item.id)}
+                              title="刪除"
+                            >✕</button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {/* 結算統計區 */}
+                    <div className="loot-split-summary">
+                      <div className="loot-sum-row">
+                        <span className="loot-sum-label">💰 總收益</span>
+                        <span className="loot-sum-val">{totalAmount} 萬</span>
+                      </div>
+
+                      <div className="loot-sum-row">
+                        <span className="loot-sum-label">👥 分紅人數</span>
+                        <div className="loot-people-stepper">
+                          <button type="button" className="stepper-btn" onClick={() => handleUpdateSplitCount(-1)}>-</button>
+                          <span className="stepper-num">{currentSplitCount} 人</span>
+                          <button type="button" className="stepper-btn" onClick={() => handleUpdateSplitCount(1)}>+</button>
+                        </div>
+                      </div>
+
+                      <div className="loot-result-divider" />
+
+                      <div className="loot-final-payout">
+                        <span className="payout-label">👑 每人實拿</span>
+                        <span className="payout-amount">{formattedPerPerson} <small>萬</small></span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Box 4: Kill Report (Deep Analysis) */}
               <div className="hud-card">

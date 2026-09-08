@@ -4276,3 +4276,329 @@ body {
   background: rgba(255, 255, 255, 0.1);
 }
 
+/* ==========================================================================
+   殭屍菇菇專屬・極簡戰利品紀錄與即時分紅模組 (Loot Split Card v1.0)
+   ========================================================================== */
+.loot-split-card {
+  border: 1px solid rgba(171, 71, 188, 0.3) !important;
+  background: linear-gradient(180deg, rgba(30, 15, 38, 0.7) 0%, rgba(18, 18, 28, 0.85) 100%) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 0 15px rgba(171, 71, 188, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.loot-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.loot-card-header .hud-label {
+  color: #e1bee7 !important;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.loot-clear-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 77, 77, 0.3);
+  color: #ff7675;
+  font-size: 0.65rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.loot-clear-btn:hover {
+  background: rgba(255, 77, 77, 0.15);
+  border-color: #ff4d4d;
+  color: #fff;
+}
+
+/* 輸入表單 */
+.loot-input-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.loot-select-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.loot-select {
+  width: 100%;
+  background: #11111a;
+  color: #fff;
+  border: 1px solid rgba(171, 71, 188, 0.35);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.loot-select:focus {
+  border-color: #ab47bc;
+  box-shadow: 0 0 8px rgba(171, 71, 188, 0.3);
+}
+
+.loot-select option {
+  background: #181824;
+  color: #fff;
+}
+
+.loot-custom-input {
+  width: 100%;
+  background: #11111a;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  outline: none;
+}
+
+.loot-custom-input:focus {
+  border-color: #ffb300;
+}
+
+.loot-amount-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.loot-amount-input-box {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: #11111a;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 0 8px;
+}
+
+.loot-amount-input-box:focus-within {
+  border-color: #ffb300;
+}
+
+.loot-amount-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 800;
+  padding: 6px 0;
+  outline: none;
+  font-family: var(--font-mono);
+}
+
+.loot-unit {
+  font-size: 0.75rem;
+  color: #aaa;
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+.loot-add-btn {
+  padding: 6px 14px !important;
+  font-size: 0.75rem !important;
+  font-weight: 800 !important;
+  white-space: nowrap;
+}
+
+/* 掉落物清單 */
+.loot-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.loot-items-list::-webkit-scrollbar {
+  width: 4px;
+}
+.loot-items-list::-webkit-scrollbar-thumb {
+  background: rgba(171, 71, 188, 0.3);
+  border-radius: 4px;
+}
+
+.loot-empty-hint {
+  font-size: 0.72rem;
+  color: #777;
+  text-align: center;
+  padding: 10px 0;
+  font-style: italic;
+}
+
+.loot-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  font-size: 0.75rem;
+  transition: all 0.2s;
+}
+
+.loot-item-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.loot-item-bullet {
+  color: #ab47bc;
+  font-weight: 900;
+}
+
+.loot-item-name {
+  flex: 1;
+  color: #f3e5f5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.loot-item-amt {
+  color: #ffd54f;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.loot-item-del {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: all 0.15s;
+}
+
+.loot-item-del:hover {
+  color: #ff5252;
+  background: rgba(255, 82, 82, 0.15);
+}
+
+/* 結算統計區 */
+.loot-split-summary {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.loot-sum-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+}
+
+.loot-sum-label {
+  color: #aaa;
+  font-weight: 700;
+}
+
+.loot-sum-val {
+  color: #ffd54f;
+  font-weight: 800;
+  font-family: var(--font-mono);
+}
+
+.loot-people-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stepper-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 0.85rem;
+  transition: all 0.15s;
+}
+
+.stepper-btn:hover {
+  background: rgba(171, 71, 188, 0.4);
+  border-color: #ab47bc;
+}
+
+.stepper-num {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #fff;
+  min-width: 32px;
+  text-align: center;
+}
+
+.loot-result-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 2px 0;
+}
+
+.loot-final-payout {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  background: rgba(171, 71, 188, 0.15);
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(171, 71, 188, 0.3);
+}
+
+.payout-label {
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.payout-amount {
+  color: #39ff14;
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 950;
+  text-shadow: 0 0 10px rgba(57, 255, 20, 0.35);
+}
+
+.payout-amount small {
+  font-size: 0.68rem;
+  color: #81c784;
+  font-weight: 700;
+}
+
+
