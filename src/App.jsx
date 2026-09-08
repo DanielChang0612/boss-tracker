@@ -27,6 +27,7 @@ const BOSSES = {
   doll: { name: "仙人娃娃", time: 178, area: "桃花仙境", color: "#f48fb1" },
   bear: { name: "肯得熊", time: 128, area: "桃花仙境", color: "#795548" },
   mushroom: { name: "蘑菇王", time: 240, area: "維多利亞島", color: "#d32f2f" },
+  zombie_mushroom: { name: "殭屍菇菇", time: 40, maxTime: 60, timeText: "40 ~ 60 分鐘", area: "維多利亞島", color: "#ab47bc" },
   deetloi: { name: "迪特和洛伊", time: 165, area: "納希沙漠", color: "#ffb300" },
   chimera: { name: "奇美拉", time: 135, area: "納希沙漠", color: "#7b1fa2" },
   guard: { name: "自動警備系統", time: 173, area: "納希沙漠", color: "#455a64" },
@@ -3416,8 +3417,8 @@ function App() {
                 <span className="hud-label">BOSS 資訊</span>
                 <div style={{ fontSize: '0.85rem', lineHeight: '1.8', color: '#ccc' }}>
                   <div>{currentBoss.name}</div>
-                  <div>重生時間: {currentBoss.time} 分鐘</div>
-                  <div>地區: 開發者地圖</div>
+                  <div>重生時間: {currentBoss.timeText || `${currentBoss.time} 分鐘`}</div>
+                  <div>地區: {currentBoss.area || '維多利亞島'}</div>
                 </div>
               </div>
 
