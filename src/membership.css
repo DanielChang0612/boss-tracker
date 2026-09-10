@@ -4384,9 +4384,16 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.loot-select-wrap {
-  position: relative;
+.loot-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
   width: 100%;
+}
+
+.loot-add-row .loot-select-wrap {
+  flex: 1;
+  min-width: 0;
 }
 
 .loot-select {
@@ -4428,45 +4435,6 @@ body {
   border-color: #ffb300;
 }
 
-.loot-amount-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.loot-amount-input-box {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  background: #11111a;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
-  padding: 0 8px;
-}
-
-.loot-amount-input-box:focus-within {
-  border-color: #ffb300;
-}
-
-.loot-amount-input {
-  width: 100%;
-  background: transparent;
-  border: none;
-  color: #fff;
-  font-size: 0.8rem;
-  font-weight: 800;
-  padding: 6px 0;
-  outline: none;
-  font-family: var(--font-mono);
-}
-
-.loot-unit {
-  font-size: 0.75rem;
-  color: #aaa;
-  font-weight: 700;
-  margin-left: 4px;
-}
-
 .loot-add-btn {
   padding: 6px 14px !important;
   font-size: 0.75rem !important;
@@ -4474,12 +4442,12 @@ body {
   white-space: nowrap;
 }
 
-/* 掉落物清單 */
+/* 掉落物清單 (每列內嵌金額輸入框) */
 .loot-items-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 140px;
+  max-height: 150px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -4530,11 +4498,45 @@ body {
   font-weight: 600;
 }
 
-.loot-item-amt {
+.loot-item-amt-box {
+  display: flex;
+  align-items: center;
+  background: #11111a;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: 1px 6px;
+  width: 78px;
+  transition: border-color 0.2s;
+}
+
+.loot-item-amt-box:focus-within {
+  border-color: #ffd54f;
+  box-shadow: 0 0 6px rgba(255, 213, 79, 0.25);
+}
+
+.loot-item-amt-input {
+  width: 100%;
+  background: transparent;
+  border: none;
   color: #ffd54f;
   font-family: var(--font-mono);
   font-weight: 800;
   font-size: 0.75rem;
+  text-align: right;
+  outline: none;
+  padding: 2px 0;
+}
+
+.loot-item-amt-input::placeholder {
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 0.68rem;
+}
+
+.loot-item-unit {
+  font-size: 0.7rem;
+  color: #aaa;
+  font-weight: 700;
+  margin-left: 3px;
   white-space: nowrap;
 }
 

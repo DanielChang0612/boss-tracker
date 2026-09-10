@@ -3612,22 +3612,24 @@ function App() {
                     alert('請由下拉選單選取戰利品或輸入自訂名稱！');
                     return;
                   }
-                  const amt = parseFloat(lootAmount);
-                  if (isNaN(amt) || amt <= 0) {
-                    alert('請輸入大於 0 的金額（萬）！');
-                    return;
-                  }
                   const lootId = `loot_${Date.now()}`;
                   update(ref(db, `rooms/${currentRoomId}/lootSplit/items/${lootId}`), {
                     id: lootId,
                     name: finalName,
-                    amount: amt,
+                    amount: 0,
                     creator: userName,
                     createdAt: Date.now()
                   });
                   setLootPreset('');
                   setLootCustomName('');
-                  setLootAmount('');
+                };
+
+                const handleUpdateLootAmount = (lootId, valStr) => {
+                  const num = parseFloat(valStr);
+                  const validAmount = isNaN(num) || num < 0 ? 0 : num;
+                  update(ref(db, `rooms/${currentRoomId}/lootSplit/items/${lootId}`), {
+                    amount: validAmount
+                  });
                 };
 
                 const handleDeleteLoot = (lootId) => {
@@ -3658,20 +3660,25 @@ function App() {
                       )}
                     </div>
 
-                    {/* 輸入表單 */}
+                    {/* 輸入表單 (免先填金額，直接點擊記錄) */}
                     <form className="loot-input-form" onSubmit={handleAddLoot}>
-                      <div className="loot-select-wrap">
-                        <select 
-                          className="loot-select" 
-                          value={lootPreset} 
-                          onChange={(e) => setLootPreset(e.target.value)}
-                        >
-                          <option value="">-- 請選擇掉落物 --</option>
-                          {ZOMBIE_MUSHROOM_LOOT_PRESETS.map((p) => (
-                            <option key={p} value={p}>{p}</option>
-                          ))}
-                          <option value="__CUSTOM__">✏️ 自訂其他物品...</option>
-                        </select>
+                      <div className="loot-add-row">
+                        <div className="loot-select-wrap">
+                          <select 
+                            className="loot-select" 
+                            value={lootPreset} 
+                            onChange={(e) => setLootPreset(e.target.value)}
+                          >
+                            <option value="">-- 請選擇掉落物 --</option>
+                            {ZOMBIE_MUSHROOM_LOOT_PRESETS.map((p) => (
+                              <option key={p} value={p}>{p}</option>
+                            ))}
+                            <option value="__CUSTOM__">✏️ 自訂其他物品...</option>
+                          </select>
+                        </div>
+                        <button type="submit" className="btn-liquid-glass btn-lg-micro lg-amber loot-add-btn">
+                          ＋ 記錄
+                        </button>
                       </div>
 
                       {lootPreset === '__CUSTOM__' && (
@@ -3684,35 +3691,35 @@ function App() {
                           maxLength={30}
                         />
                       )}
-
-                      <div className="loot-amount-row">
-                        <div className="loot-amount-input-box">
-                          <input
-                            type="number"
-                            step="any"
-                            className="loot-amount-input"
-                            placeholder="金額"
-                            value={lootAmount}
-                            onChange={(e) => setLootAmount(e.target.value)}
-                          />
-                          <span className="loot-unit">萬</span>
-                        </div>
-                        <button type="submit" className="btn-liquid-glass btn-lg-micro lg-amber loot-add-btn">
-                          ＋ 記錄
-                        </button>
-                      </div>
                     </form>
 
-                    {/* 掉落物清單 */}
+                    {/* 掉落物清單 (每筆物品後方可直接填入/修改成交金額，即時帶入公式) */}
                     <div className="loot-items-list">
                       {itemsList.length === 0 ? (
-                        <div className="loot-empty-hint">尚無掉落物，打到隨手記一筆</div>
+                        <div className="loot-empty-hint">尚無掉落物，打到上方隨手選了直接「＋ 記錄」</div>
                       ) : (
                         itemsList.map(item => (
                           <div key={item.id} className="loot-item-row">
                             <span className="loot-item-bullet">•</span>
                             <span className="loot-item-name" title={item.name}>{item.name}</span>
-                            <span className="loot-item-amt">{item.amount} 萬</span>
+                            <div className="loot-item-amt-box">
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                className="loot-item-amt-input"
+                                placeholder="成交金額"
+                                defaultValue={item.amount > 0 ? item.amount : ''}
+                                key={`${item.id}_${item.amount}`}
+                                onBlur={(e) => handleUpdateLootAmount(item.id, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.target.blur();
+                                  }
+                                }}
+                              />
+                              <span className="loot-item-unit">萬</span>
+                            </div>
                             <button 
                               type="button" 
                               className="loot-item-del" 
