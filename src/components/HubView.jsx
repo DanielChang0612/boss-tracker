@@ -62,7 +62,7 @@ export default function HubView({
           <div className="mission-card-icon">👑</div>
           <h2 className="mission-card-title">PiKaPi 公會和諧打王趣</h2>
           <p className="mission-card-desc">
-            全頻道野王即時倒數計時、四人車隊蹲點防搶機制、TTS 真人語音報時與「把愛傳下去」跨房無縫交接。
+            全頻道野王即時倒數計時、多人車隊蹲點防搶機制、TTS 真人語音報時與「把愛傳下去」跨房無縫交接。
           </p>
 
           <div className="mission-features-list">

@@ -1603,8 +1603,62 @@ body {
 .v9-role-badge { background: var(--accent-gold); color: #000; padding: 4px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 950; white-space: nowrap; }
 .v7-name { font-size: 1.4rem; font-weight: 950; color: #fff; }
 
+/* Member List Header & Pagination (無上限 4 人分頁) */
+.v9-members-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.v9-members-pagination {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.member-page-btn {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 1px 5px;
+  border-radius: 4px;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.member-page-btn:hover:not(:disabled) {
+  background: rgba(246, 207, 87, 0.2);
+  color: var(--accent-gold);
+}
+
+.member-page-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.member-page-indicator {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--accent-gold);
+  min-width: 32px;
+  text-align: center;
+}
+
 /* Member List (Densified) */
 .v9-members-list { display: flex; flex-direction: column; gap: 12px; }
+.v9-members-list.fixed-size-list {
+  min-height: 240px;
+}
 .v9-member-item { display: flex; align-items: center; gap: 15px; padding: 8px 0; font-size: 1.1rem; }
 .v9-member-item.is-me .member-name { color: var(--accent-gold); font-weight: 950; }
 

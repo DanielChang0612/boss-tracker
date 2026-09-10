@@ -343,6 +343,9 @@ function App() {
   const [lootCustomName, setLootCustomName] = useState('');
   const [lootAmount, setLootAmount] = useState('');
 
+  // 房間成員分頁狀態 (每頁固定 4 人)
+  const [memberPage, setMemberPage] = useState(1);
+
   // 自動關閉房內重生 Toast
   useEffect(() => {
     if (roomAlertToast) {
@@ -1625,13 +1628,7 @@ function App() {
     if (!snapshot.exists()) return alert("房間已不存在");
 
     const room = snapshot.val();
-    const membersList = Object.keys(room.members || {});
     const nowSynced = getSyncedTime();
-
-    // 如果不是原本就在裡面，且人數已滿 4 人，不給進
-    if (!membersList.includes(userName) && membersList.length >= 4) {
-      return alert("【戰報】該房間員額已滿 (4/4)，請選擇其他房間或自行開車。");
-    }
 
     if (room.password !== passwordInput) return alert("密碼錯誤");
 
@@ -3353,7 +3350,7 @@ function App() {
                       <div className="col-boss">
                         {room.conductor || <span style={{ color: '#ff4444', fontWeight: 'bold' }}>⚠️ 這城市那麼空</span>}
                       </div>
-                      <div className="room-count"><b>{memberCount}</b>/4</div>
+                      <div className="room-count"><b>{memberCount}</b> 人</div>
                       <div className="room-time">{formatTime(now - room.createdAt)}</div>
                       <div className="room-status">
                         {isOrphaned ? (
@@ -3375,10 +3372,6 @@ function App() {
                             setView('room');
                           }}>
                             返回房間
-                          </button>
-                        ) : memberCount >= 4 ? (
-                          <button className="join-room-btn-v11 room-is-full" disabled>
-                            房間已滿
                           </button>
                         ) : (
                           <button className="join-room-btn-v11" onClick={() => { setCurrentRoomId(room.id); setView('join'); }}>
@@ -3504,40 +3497,87 @@ function App() {
               </div>
 
               {/* Box 2: Members */}
-              <div className="hud-card">
-                <span className="hud-label">車內成員 {members.length}/4</span>
-                <div className="v9-members-list">
-                  {Object.entries(currentRoom.members || {}).map(([mName, mData]) => (
-                    <div key={mName} className={`v9-member-item ${mName === userName ? 'is-me' : ''}`}>
-                      <div className="v9-member-avatar-box">
-                        {renderAvatar(typeof mData === 'object' ? mData.photoURL : '🐶', "v9-mini-avatar")}
-                        <span className={`status-dot-v9 ${typeof mData === 'object' && mData.isOnline ? 'online' : 'offline'}`}></span>
-                      </div>
-                      <div className="member-names-stack">
-                        <span className="member-name">{mName}</span>
-                        {(() => {
-                          const rank = getRankInfo(typeof mData === 'object' ? mData.totalKills : 0);
-                          return (
-                            <span className="member-rank-mini" style={{ color: rank.color }}>
-                              {rank.badge} {rank.fullTitle}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                      {mName === currentRoom.conductor ? (
-                        <span className="v9-conductor-badge">👑 車長</span>
-                      ) : (
-                        isConductor && (
-                          <div className="v9-member-ctx-actions">
-                            <button className="btn-liquid-glass btn-lg-micro lg-amber" onClick={() => transferConductor(mName)} title="移交車長">👑</button>
-                            <button className="btn-liquid-glass btn-lg-micro lg-red" onClick={() => removeMember(mName)} title="請下車">❌</button>
-                          </div>
-                        )
+              {/* Box 2: Members (無上限 & 固定大小 4 人分頁) */}
+              {(() => {
+                const rawMembers = Object.entries(currentRoom.members || {});
+                // 智慧排序：車長置頂、自己第二、在線優先、離線在後
+                const sortedMembers = [...rawMembers].sort(([nameA, dataA], [nameB, dataB]) => {
+                  if (nameA === currentRoom.conductor) return -1;
+                  if (nameB === currentRoom.conductor) return 1;
+                  if (nameA === userName) return -1;
+                  if (nameB === userName) return 1;
+                  const onlineA = typeof dataA === 'object' && dataA.isOnline ? 1 : 0;
+                  const onlineB = typeof dataB === 'object' && dataB.isOnline ? 1 : 0;
+                  return onlineB - onlineA;
+                });
+
+                const totalMemberPages = Math.max(1, Math.ceil(sortedMembers.length / 4));
+                const safeMemberPage = Math.min(Math.max(1, memberPage), totalMemberPages);
+                const paginatedMembers = sortedMembers.slice((safeMemberPage - 1) * 4, safeMemberPage * 4);
+
+                return (
+                  <div className="hud-card v9-members-card">
+                    <div className="v9-members-header">
+                      <span className="hud-label">車內成員 ({sortedMembers.length} 人)</span>
+                      {totalMemberPages > 1 && (
+                        <div className="v9-members-pagination">
+                          <button
+                            type="button"
+                            className="member-page-btn"
+                            disabled={safeMemberPage <= 1}
+                            onClick={() => setMemberPage(p => Math.max(1, p - 1))}
+                            title="上一頁"
+                          >
+                            ◀
+                          </button>
+                          <span className="member-page-indicator">{safeMemberPage} / {totalMemberPages}</span>
+                          <button
+                            type="button"
+                            className="member-page-btn"
+                            disabled={safeMemberPage >= totalMemberPages}
+                            onClick={() => setMemberPage(p => Math.min(totalMemberPages, p + 1))}
+                            title="下一頁"
+                          >
+                            ▶
+                          </button>
+                        </div>
                       )}
                     </div>
-                  ))}
-                </div>
-              </div>
+
+                    <div className="v9-members-list fixed-size-list">
+                      {paginatedMembers.map(([mName, mData]) => (
+                        <div key={mName} className={`v9-member-item ${mName === userName ? 'is-me' : ''}`}>
+                          <div className="v9-member-avatar-box">
+                            {renderAvatar(typeof mData === 'object' ? mData.photoURL : '🐶', "v9-mini-avatar")}
+                            <span className={`status-dot-v9 ${typeof mData === 'object' && mData.isOnline ? 'online' : 'offline'}`}></span>
+                          </div>
+                          <div className="member-names-stack">
+                            <span className="member-name">{mName}</span>
+                            {(() => {
+                              const rank = getRankInfo(typeof mData === 'object' ? mData.totalKills : 0);
+                              return (
+                                <span className="member-rank-mini" style={{ color: rank.color }}>
+                                  {rank.badge} {rank.fullTitle}
+                                </span>
+                              );
+                            })()}
+                          </div>
+                          {mName === currentRoom.conductor ? (
+                            <span className="v9-conductor-badge">👑 車長</span>
+                          ) : (
+                            isConductor && (
+                              <div className="v9-member-ctx-actions">
+                                <button className="btn-liquid-glass btn-lg-micro lg-amber" onClick={() => transferConductor(mName)} title="移交車長">👑</button>
+                                <button className="btn-liquid-glass btn-lg-micro lg-red" onClick={() => removeMember(mName)} title="請下車">❌</button>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Box 3: Boss Information */}
               <div className="hud-card">
@@ -4297,7 +4337,7 @@ function App() {
                             <div className="r-conductor">房主: {r.conductor}</div>
                           </div>
                           <div className="r-members-list">
-                            <div className="m-label">當前成員 ({Object.keys(r.members || {}).length}/4):</div>
+                            <div className="m-label">當前成員 ({Object.keys(r.members || {}).length} 人):</div>
                             <div className="m-names">
                               {(r.memberNames || []).join(', ') || '載入中...'}
                             </div>
