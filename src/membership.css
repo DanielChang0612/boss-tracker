@@ -4710,3 +4710,307 @@ body {
   color: #81c784;
   font-weight: 700;
 }
+
+/* 戰利品分紅 Header 操作群組與匯出按鈕 */
+.loot-card-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.loot-export-btn {
+  background: rgba(255, 179, 0, 0.12);
+  border: 1px solid rgba(255, 179, 0, 0.4);
+  color: #ffd54f;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.loot-export-btn:hover {
+  background: rgba(255, 179, 0, 0.25);
+  border-color: #ffd54f;
+  color: #fff;
+  box-shadow: 0 0 8px rgba(255, 179, 0, 0.35);
+}
+
+/* ==========================================================================
+   隱藏但可供 html2canvas 渲染的戰利品結算戰報卡片 (Loot Export Card v1.0)
+   ========================================================================== */
+.loot-export-canvas-card {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 580px;
+  background: linear-gradient(145deg, #130a21 0%, #0c0a17 40%, #1a0f2e 100%);
+  border: 2px solid #ab47bc;
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.9);
+  padding: 28px;
+  border-radius: 16px;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  z-index: -999;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.lec-header {
+  text-align: center;
+  border-bottom: 1px solid rgba(171, 71, 188, 0.3);
+  padding-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.lec-badge {
+  background: rgba(255, 179, 0, 0.15);
+  color: #ffd54f;
+  border: 1px solid rgba(255, 179, 0, 0.3);
+  font-size: 0.8rem;
+  font-weight: 800;
+  padding: 3px 12px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+}
+
+.lec-title {
+  font-size: 1.5rem;
+  font-weight: 950;
+  margin: 0;
+  color: #fff;
+  text-shadow: 0 0 15px rgba(171, 71, 188, 0.6);
+  letter-spacing: 1px;
+}
+
+.lec-subtitle {
+  font-size: 0.68rem;
+  color: #ba68c8;
+  letter-spacing: 2px;
+  font-weight: 700;
+}
+
+/* 核心資訊列 */
+.lec-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+
+.lec-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.lec-meta-label {
+  font-size: 0.72rem;
+  color: #888;
+  font-weight: 700;
+}
+
+.lec-meta-val {
+  font-size: 0.95rem;
+  font-weight: 900;
+  color: #f3e5f5;
+  font-family: var(--font-mono);
+}
+
+/* 區塊標題與表格 */
+.lec-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lec-sec-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.88rem;
+  font-weight: 900;
+  color: #ffd54f;
+}
+
+.lec-badge-small {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-family: var(--font-mono);
+}
+
+/* 掉落物清單表格 */
+.lec-items-table {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.lec-table-head {
+  display: grid;
+  grid-template-columns: 1fr 80px 110px;
+  padding: 8px 14px;
+  background: rgba(171, 71, 188, 0.2);
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #e1bee7;
+  border-bottom: 1px solid rgba(171, 71, 188, 0.2);
+}
+
+.lec-table-row {
+  display: grid;
+  grid-template-columns: 1fr 80px 110px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  font-size: 0.85rem;
+  align-items: center;
+}
+
+.lec-table-row:last-child {
+  border-bottom: none;
+}
+
+.lec-table-row .col-name {
+  color: #fff;
+  font-weight: 800;
+}
+
+.lec-table-row .col-qty {
+  color: #ffd54f;
+  font-family: var(--font-mono);
+  font-weight: 900;
+}
+
+.lec-table-row .col-amt {
+  color: #39ff14;
+  font-family: var(--font-mono);
+  font-weight: 900;
+  text-align: right;
+}
+
+/* 參與人員名冊 Tags */
+.lec-members-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.lec-member-tag {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #e0e0e0;
+}
+
+.lec-member-tag.is-conductor {
+  background: rgba(255, 179, 0, 0.2);
+  border-color: #ffd54f;
+  color: #ffd54f;
+}
+
+/* 財務分紅看板 */
+.lec-calc-panel {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.5) 0%, rgba(26, 15, 46, 0.6) 100%);
+  border: 1px solid rgba(171, 71, 188, 0.4);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lec-calc-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: #ccc;
+}
+
+.lec-calc-row b {
+  color: #ffd54f;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+}
+
+.lec-calc-row b.fee {
+  color: #ff7675;
+}
+
+.lec-formula-line {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  color: #ce93d8;
+  font-family: var(--font-mono);
+  margin-top: 4px;
+}
+
+.lec-formula-line b {
+  color: #39ff14;
+  font-size: 0.9rem;
+}
+
+.lec-payout-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(171, 71, 188, 0.25);
+  border: 1.5px solid #ab47bc;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-top: 6px;
+}
+
+.lec-payout-box .payout-txt {
+  font-weight: 900;
+  color: #fff;
+  font-size: 0.9rem;
+}
+
+.lec-payout-box .payout-num {
+  font-size: 1.35rem;
+  font-weight: 950;
+  color: #39ff14;
+  font-family: var(--font-mono);
+  text-shadow: 0 0 12px rgba(57, 255, 20, 0.5);
+}
+
+.lec-payout-box .payout-num small {
+  font-size: 0.75rem;
+  color: #81c784;
+}
+
+.lec-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.68rem;
+  color: #888;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 10px;
+  font-weight: 600;
+}
+

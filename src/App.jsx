@@ -3651,12 +3651,55 @@ function App() {
                   }
                 };
 
+                const lootSummaryByName = itemsList.reduce((acc, item) => {
+                  const name = item.name || '未命名戰利品';
+                  if (!acc[name]) {
+                    acc[name] = { count: 0, totalAmount: 0 };
+                  }
+                  acc[name].count += 1;
+                  acc[name].totalAmount += (Number(item.amount) || 0);
+                  return acc;
+                }, {});
+
+                const handleExportLootReport = () => {
+                  if (itemsList.length === 0) {
+                    alert('目前尚無戰利品紀錄可供匯出！');
+                    return;
+                  }
+                  const element = document.getElementById('loot-export-report-panel');
+                  if (!element) return;
+
+                  html2canvas(element, {
+                    backgroundColor: '#0d0a17',
+                    scale: 3,
+                    useCORS: true,
+                    logging: false
+                  }).then(canvas => {
+                    const link = document.createElement('a');
+                    const nowObj = new Date();
+                    const timeStr = `${nowObj.getFullYear()}${String(nowObj.getMonth() + 1).padStart(2, '0')}${String(nowObj.getDate()).padStart(2, '0')}_${String(nowObj.getHours()).padStart(2, '0')}${String(nowObj.getMinutes()).padStart(2, '0')}`;
+                    link.download = `PiKaPi_戰利品分紅_${currentBoss.name}_${timeStr}.png`;
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                  }).catch(err => {
+                    console.error('匯出戰利品圖片錯誤:', err);
+                    alert('匯出戰報時發生錯誤，請稍候再試！');
+                  });
+                };
+
                 return (
                   <div className="hud-card loot-split-card">
                     <div className="loot-card-header">
                       <span className="hud-label">🎁 本場戰利品分紅</span>
                       {itemsList.length > 0 && (
-                        <button type="button" className="loot-clear-btn" onClick={handleClearLoot} title="清空本場戰利品">清空</button>
+                        <div className="loot-card-header-actions">
+                          <button type="button" className="loot-export-btn" onClick={handleExportLootReport} title="匯出戰利品分紅戰報 (PNG)">
+                            🖼️ 匯出
+                          </button>
+                          <button type="button" className="loot-clear-btn" onClick={handleClearLoot} title="清空本場戰利品">
+                            清空
+                          </button>
+                        </div>
                       )}
                     </div>
 
@@ -3773,6 +3816,95 @@ function App() {
                           <span className="payout-sub-hint">(已扣除 5% 交易手續費)</span>
                         </div>
                         <span className="payout-amount">{formattedPerPerson} <small>萬</small></span>
+                      </div>
+                    </div>
+
+                    {/* 隱藏渲染節點：戰利品分紅結算戰報 (專供 html2canvas 導出 PNG) */}
+                    <div id="loot-export-report-panel" className="loot-export-canvas-card">
+                      <div className="lec-header">
+                        <div className="lec-badge">👑 PiKaPi 公會和諧打王趣</div>
+                        <h2 className="lec-title">🎁 戰利品分紅結算情報戰報</h2>
+                        <div className="lec-subtitle">LOOT SPLIT & SETTLEMENT REPORT</div>
+                      </div>
+
+                      <div className="lec-meta-grid">
+                        <div className="lec-meta-item">
+                          <span className="lec-meta-label">📅 結算時間</span>
+                          <span className="lec-meta-val">{new Date().toLocaleString('zh-TW', { hour12: false })}</span>
+                        </div>
+                        <div className="lec-meta-item">
+                          <span className="lec-meta-label">👾 討伐野王</span>
+                          <span className="lec-meta-val">{currentBoss.area || '維多利亞島'}・{currentBoss.name}</span>
+                        </div>
+                        <div className="lec-meta-item">
+                          <span className="lec-meta-label">🚪 房間代號</span>
+                          <span className="lec-meta-val">#{currentRoomId}</span>
+                        </div>
+                        <div className="lec-meta-item">
+                          <span className="lec-meta-label">👑 帶隊車長</span>
+                          <span className="lec-meta-val">{currentRoom.conductor || '無'}</span>
+                        </div>
+                      </div>
+
+                      <div className="lec-section">
+                        <div className="lec-sec-title">
+                          <span>📦 掉落物資訊</span>
+                          <span className="lec-badge-small">共 {itemsList.length} 件</span>
+                        </div>
+                        <div className="lec-items-table">
+                          <div className="lec-table-head">
+                            <span className="col-name">物品名稱</span>
+                            <span className="col-qty">數量</span>
+                            <span className="col-amt">成交金額</span>
+                          </div>
+                          {Object.entries(lootSummaryByName).map(([name, data]) => (
+                            <div key={name} className="lec-table-row">
+                              <span className="col-name">{name}</span>
+                              <span className="col-qty">x {data.count}</span>
+                              <span className="col-amt">{data.totalAmount > 0 ? `${data.totalAmount} 萬` : '未售出'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="lec-section">
+                        <div className="lec-sec-title">
+                          <span>👥 參與分紅人員名冊</span>
+                          <span className="lec-badge-small">共 {Object.keys(currentRoom.members || {}).length} 人</span>
+                        </div>
+                        <div className="lec-members-tag-list">
+                          {Object.entries(currentRoom.members || {}).map(([mName, mData]) => {
+                            const isConductorItem = mName === currentRoom.conductor;
+                            return (
+                              <span key={mName} className={`lec-member-tag ${isConductorItem ? 'is-conductor' : ''}`}>
+                                {isConductorItem ? '👑 ' : '👤 '}{mName}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="lec-calc-panel">
+                        <div className="lec-calc-row">
+                          <span>💰 總成交金額：<b>{formattedTotal} 萬</b></span>
+                          <span>🏷️ 販售手續費 (5%)：<b className="fee">- {formattedFee} 萬</b></span>
+                        </div>
+                        <div className="lec-calc-row">
+                          <span>💵 扣稅淨收益 (95%)：<b>{formattedNet} 萬</b></span>
+                          <span>👥 分紅計算人數：<b>{currentSplitCount} 人</b></span>
+                        </div>
+                        <div className="lec-formula-line">
+                          📐 計算公式：({formattedTotal}萬 × 95%) ÷ {currentSplitCount}人 = <b>{formattedPerPerson}</b> 萬
+                        </div>
+                        <div className="lec-payout-box">
+                          <span className="payout-txt">👑 每人實拿金額 (已扣除 5% 手續費)</span>
+                          <span className="payout-num">{formattedPerPerson} <small>萬 楓幣</small></span>
+                        </div>
+                      </div>
+
+                      <div className="lec-footer">
+                        <span>PiKaPi 作戰指揮部認證結算戰報</span>
+                        <span>• 誠信分紅 榮耀共享 •</span>
                       </div>
                     </div>
                   </div>
